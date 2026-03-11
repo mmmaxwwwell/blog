@@ -1,0 +1,172 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import TagList from '../components/TagList.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  date: Date;
+  updated?: Date;
+  category: string;
+  tags: string[];
+  heroImage?: string;
+}
+
+const { title, description, date, updated, category, tags, heroImage } = Astro.props;
+
+const formattedDate = date.toLocaleDateString('en-US', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+});
+
+const formattedUpdated = updated?.toLocaleDateString('en-US', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+});
+---
+<BaseLayout title={title} description={description} image={heroImage}>
+  <main class="flex-1 w-full max-w-[720px] mx-auto px-4 py-4 sm:py-8">
+    <article>
+      <header class="mb-6 sm:mb-8">
+        <h1 class="text-3xl sm:text-4xl font-bold mb-3 text-text-primary">{title}</h1>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-text-muted">
+          <time datetime={date.toISOString()}>{formattedDate}</time>
+          {formattedUpdated && (
+            <span>Updated {formattedUpdated}</span>
+          )}
+          <a href={`/blog/category/${category}/`} class="hover:text-accent-cyan">
+            {category}
+          </a>
+        </div>
+        <div class="mt-3">
+          <TagList tags={tags} />
+        </div>
+      </header>
+
+      {heroImage && (
+        <img
+          src={heroImage}
+          alt={title}
+          class="w-full rounded-lg mb-8 border border-border"
+        />
+      )}
+
+      <div class="prose">
+        <slot />
+      </div>
+    </article>
+  </main>
+</BaseLayout>
+
+<style>
+  /* Prose styles for MDX content */
+  .prose {
+    line-height: 1.75;
+  }
+
+  .prose :global(h2) {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+    color: var(--text-primary);
+  }
+
+  .prose :global(h3) {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+  }
+
+  .prose :global(h4) {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+  }
+
+  .prose :global(p) {
+    margin-bottom: 1.25rem;
+  }
+
+  .prose :global(ul),
+  .prose :global(ol) {
+    margin-bottom: 1.25rem;
+    padding-left: 1.5rem;
+  }
+
+  .prose :global(ul) {
+    list-style-type: disc;
+  }
+
+  .prose :global(ol) {
+    list-style-type: decimal;
+  }
+
+  .prose :global(li) {
+    margin-bottom: 0.25rem;
+  }
+
+  .prose :global(blockquote) {
+    border-left: 3px solid var(--accent-purple);
+    padding-left: 1rem;
+    margin: 1.5rem 0;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .prose :global(pre) {
+    margin-bottom: 1.25rem;
+  }
+
+  .prose :global(img) {
+    max-width: 100%;
+    border-radius: 0.5rem;
+    margin: 1.5rem 0;
+  }
+
+  .prose :global(hr) {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: 2rem 0;
+  }
+
+  .prose :global(.table-wrapper) {
+    overflow-x: auto;
+    margin-bottom: 1.25rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .prose :global(table) {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.25rem;
+  }
+
+  .prose :global(th),
+  .prose :global(td) {
+    border: 1px solid var(--border-color);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+  }
+
+  .prose :global(th) {
+    background-color: var(--bg-surface);
+    font-weight: 600;
+  }
+
+  .prose :global(a) {
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--accent-pink) 40%, transparent);
+    text-underline-offset: 2px;
+  }
+
+  .prose :global(a:hover) {
+    text-decoration-color: var(--accent-cyan);
+  }
+</style>

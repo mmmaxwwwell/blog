@@ -1,0 +1,112 @@
+---
+title: "Building This Blog with an AI Agent Framework"
+description: "How I used a structured prompt-generation framework to have Claude build an entire Astro blog from a conversation, not a blank editor."
+date: 2026-03-10
+category: "software-dev"
+tags: ["astro", "claude", "ai-agents", "tailwind-css", "mdx"]
+draft: false
+---
+
+This blog didn't start with `npm create astro`. It started with a conversation. Two days ago I had an idea for a framework that scaffolds projects using AI agents. It's a structured interview process that produces the files an agent needs to build something session by session, without losing context. The blog you're reading right now was the first real test, and it went from empty repo to fully deployed in a single evening.
+
+## The agent framework
+
+The core idea behind my [agent-framework](https://github.com/mmmaxwwwell/agent-framework) is simple: most AI coding sessions fail not because the model can't write code, but because it doesn't have enough context to make good decisions. You paste in a vague prompt, get back something half-right, spend 30 minutes correcting it, and repeat.
+
+The framework fixes this by generating three files from a structured interview:
+
+1. **A project prompt**, a dense technical spec covering the stack, architecture, design system, page flows, and file structure. This is what the agent reads at the start of every session.
+2. **A task checklist**, a phased breakdown of every step needed to build the project, with status markers and dependencies.
+3. **A memory file**, architecture decisions, gotchas, open questions, and anything discovered during implementation that future sessions need to know.
+
+The interview itself follows a specific sequence: project overview, tech stack, user flows, data schemas, existing files, task breakdown, constraints. The generator prompt instructs the AI to *lead* the conversation, researching tools independently, proposing concrete solutions, challenging overcomplicated ideas, and filling in gaps I haven't thought about.
+
+## From conversation to working blog
+
+I started with a blank repo and one message: "I want to host a blog on github pages. use [the generator prompt](https://github.com/mmmaxwwwell/agent-framework/blob/main/generator-prompt.md) to help me start."
+
+The generator fetched the prompt, saw the empty repo, and started the interview. First question: what kind of blog, what topics, any preference on the static site generator? I told it I'd be writing about hobbyist electronics, OpenSCAD, 3D printing, and software projects, and that I didn't have a preference on the generator. I asked it to create a list of pros and cons and let me pick one. It researched Hugo, Astro, Jekyll, and 11ty and came back with a comparison table:
+
+| | Hugo | Astro | Jekyll | 11ty |
+|---|---|---|---|---|
+| Language | Go | JS/TS | Ruby | JS |
+| Build speed | Blazing | Fast | Slow | Fast |
+| GitHub Pages | Actions | Actions | Native | Actions |
+| Theming | Huge ecosystem | Component-based | Largest ecosystem | DIY |
+
+I picked Astro. The generator dug into the specifics: Astro v5 with content collections, Tailwind CSS v4 for styling, GitHub Actions for deployment. It asked whether I wanted MDX or plain Markdown. Given my topics (embedded components, circuit diagrams, 3D renders could all be useful later), MDX made sense.
+
+Then I dumped the rest in one message: GitHub username `mmmaxwwwell`, repo name `blog`, filterable tags, category pages, tags on all posts, an about page, no comment system. And I wanted a two-agent setup: one agent to scaffold the site, and a separate `CLAUDE.md` for a content-creation agent to handle writing posts once the site existed.
+
+The generator summarized everything back to me for confirmation: the URL structure (`mmmaxwwwell.github.io/blog/`), the page list, the content collection schema, the design direction. It asked if I had anything to add. I said "nope fire away."
+
+It produced four files:
+
+- [blog-prompt.md](https://github.com/mmmaxwwwell/blog/blob/main/src/content/blog/2026-03-10-building-my-blog-with-astro/blog-prompt.md), the full project spec: target file structure, retrowave color palette with hex values for both dark and light modes, content collection schema in TypeScript, page routing for every URL, GitHub Pages deploy config, and the session-by-session workflow rules
+- [blog-tasks.md](https://github.com/mmmaxwwwell/blog/blob/main/src/content/blog/2026-03-10-building-my-blog-with-astro/blog-tasks.md), 18 tasks across 5 phases: project scaffolding (init, theming, layouts, header, footer), content infrastructure (schema, post layout, cards, tag components), pages (home, blog index, post pages, categories, tags, about), polish and deploy (responsive, SEO, RSS, GitHub Actions, sample posts, final review), and content agent setup
+- [blog-notes.md](https://github.com/mmmaxwwwell/blog/blob/main/src/content/blog/2026-03-10-building-my-blog-with-astro/blog-notes.md), architecture decisions, the full color palette table, dark/light mode implementation plan, deployment config, typography choices, and reference links to Astro docs, Tailwind docs, and Shiki
+- [CLAUDE.md](https://github.com/mmmaxwwwell/blog/blob/main/src/content/blog/2026-03-10-building-my-blog-with-astro/CLAUDE.md), instructions for a separate content-creation agent: how to create a post, frontmatter schema, writing style guide, category and tag conventions, image handling, and a pre-publish checklist
+
+Then I opened a new Claude Code session in the blog repo and typed "start." That's it. The agent read the prompt file, read the task list, found the first unchecked task (initialize Astro v5 project), and got to work. The next session was "run the task." Same thing, next task. Twenty-five sessions later, the blog was done.
+
+## How the session loop works
+
+Each session follows the same pattern, enforced by the "How to work" section in the prompt:
+
+1. Read the task list, find the first unchecked item
+2. Read the memory file for context from previous sessions
+3. Think about whether the task is clear enough to start, and if not, ask
+4. Do the task
+5. Mark it done, update the memory file with anything learned
+6. Stop and report
+
+This is the part that makes the framework actually work. The agent doesn't try to build the whole site in one shot. It does one thing, records what happened, and hands control back. If something goes sideways (a Tailwind v4 API change, a content collection gotcha) that gets captured in the memory file so the next session doesn't hit the same wall.
+
+The task list uses simple status markers: `[ ]` for todo, `[x]` for done, `[?]` for blocked with a reason, `[~]` for discovered-unnecessary. Tasks can be split into subtasks on the fly. New tasks can be added when implementation reveals something the plan missed.
+
+## What the agent actually built
+
+The entire blog, every component, layout, page, style, and config file, was written by Claude working through the task list. Here's what that covers:
+
+- **Astro v5 with MDX content collections** and typed frontmatter validation
+- **Tailwind CSS v4 theming** using `@theme` directives and CSS custom properties that swap between dark and light mode
+- **Flash-free dark mode** with an inline script that applies the saved preference before first paint
+- **Category and tag pages** with dynamic routing
+- **GitHub Actions deployment** to GitHub Pages with the `/blog/` base path
+- **A CLAUDE.md file**, separate instructions for a content-creation agent that writes posts (meta, I know)
+
+I didn't write any of the implementation code. I made decisions during the interview, reviewed what the agent produced after each session, and occasionally course-corrected. The framework kept things on track.
+
+## Why this works better than "just prompting"
+
+The naive approach to AI-assisted development is: dump your requirements into a chat, get code back, paste it in, fix what's broken. This falls apart on anything non-trivial because:
+
+- **Context evaporates.** Each new session starts from scratch. Decisions made in session 3 are forgotten by session 7.
+- **There's no plan.** The agent doesn't know what's done, what's next, or what depends on what.
+- **Mistakes compound.** Without a memory file, the agent will re-discover the same gotchas every session.
+
+The three-file structure solves all of this. The prompt is the stable context. The task list is the plan. The memory file is the institutional knowledge. Together, they turn a stateless LLM into something that can execute a multi-session project without losing the thread.
+
+## Keeping token costs under control
+
+There's a practical benefit to the one-task-per-session approach that's easy to overlook: it's cheap.
+
+Long conversations get expensive. Tools like Claude Code do compress older context as conversations grow, but you're still accumulating tokens, and that compression is lossy. Details from earlier in the session get summarized or dropped. By message 30, the model is working with a degraded, bloated version of what happened before, and you're paying for all of it.
+
+The framework sidesteps this entirely. Each session starts fresh with just the prompt file, task list, and memory file as context. That's a few thousand tokens of dense, hand-curated information instead of a lossy compression of everything that happened in previous sessions. The agent reads what it needs, does one task, writes what it learned back to the memory file, and the session ends. Context resets. The next session loads the same compact set of files, now updated with the latest state.
+
+You get two wins: lower cost (less context per session) and higher quality (the context that *is* there is accurate and relevant, not a compressed summary that may have lost important details). For this blog, each task session ran maybe 10-20k tokens total. A single sprawling conversation trying to do the same work would have burned through more than that just in accumulated context by the halfway point.
+
+## AI writes the posts too
+
+Full transparency: the posts on this blog are also AI-assisted. I'm an engineer, not a writer. I've always had projects I wanted to share, but sitting down to write a polished blog post about them was the part that never happened. I'd build something cool, think "I should write about this," and then never do it because staring at a blank page isn't my idea of a good time.
+
+So the blog has a [CLAUDE.md](https://github.com/mmmaxwwwell/blog/blob/main/CLAUDE.md) file with instructions for a content-creation agent. I describe the project, what I built, what went wrong, what I learned, and the agent turns that into a readable post. The technical substance is mine. The prose is a collaboration. I review everything, edit for accuracy, and make sure it actually sounds like me, but the heavy lifting of turning scattered notes into coherent paragraphs happens with AI.
+
+I don't think this is something to be embarrassed about. The value of a technical blog post is in the ideas, the solutions, the "here's what actually worked." Not in whether I personally agonized over every sentence. If AI means the difference between these projects living in my head forever and actually being published where someone else might find them useful, that's a good trade.
+
+## Try it yourself
+
+The generator prompt is at [mmmaxwwwell/agent-framework](https://github.com/mmmaxwwwell/agent-framework). Point Claude (or any capable model) at the generator-prompt.md and start the interview. It works for anything with a definable scope: blogs, CLI tools, hardware firmware, API services. The framework doesn't care about the stack; it cares about structure.
+
+This blog is the proof that it works. You're reading the output.

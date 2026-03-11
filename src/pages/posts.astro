@@ -1,0 +1,50 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PostCard from '../components/PostCard.astro';
+
+const posts = (await getCollection('blog', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+
+const categories = [...new Set(posts.map((post) => post.data.category))].sort();
+---
+<BaseLayout title="Blog | mmmaxwwwell's blog" description="All posts about electronics, 3D printing, OpenSCAD, and software development.">
+  <main class="flex-1 max-w-3xl mx-auto px-4 py-6 sm:py-12 w-full">
+    <h1 class="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6">Blog</h1>
+
+    <!-- Category filter links -->
+    {categories.length > 0 && (
+      <nav class="flex flex-wrap gap-2 mb-6 sm:mb-8">
+        <span class="px-3 py-1 rounded-full text-sm border bg-[var(--accent-pink)] border-[var(--accent-pink)] text-white">
+          All
+        </span>
+        {categories.map((cat) => (
+          <a
+            href={`/blog/category/${cat}/`}
+            class="px-3 py-1 rounded-full text-sm border border-border text-text-muted hover:border-[var(--accent-pink)] hover:text-[var(--accent-pink)] transition-colors"
+          >
+            {cat}
+          </a>
+        ))}
+      </nav>
+    )}
+
+    <!-- Posts -->
+    {posts.length > 0 ? (
+      <div class="flex flex-col gap-4">
+        {posts.map((post) => (
+          <PostCard
+            title={post.data.title}
+            description={post.data.description}
+            date={post.data.date}
+            category={post.data.category}
+            tags={post.data.tags}
+            slug={post.id}
+          />
+        ))}
+      </div>
+    ) : (
+      <p class="text-text-muted">No posts yet. Check back soon!</p>
+    )}
+  </main>
+</BaseLayout>

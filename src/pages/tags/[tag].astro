@@ -1,0 +1,56 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PostCard from '../../components/PostCard.astro';
+
+export async function getStaticPaths() {
+  const posts = (await getCollection('blog', ({ data }) => !data.draft))
+    .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+
+  const tagMap = new Map<string, typeof posts>();
+  for (const post of posts) {
+    for (const tag of post.data.tags) {
+      if (!tagMap.has(tag)) tagMap.set(tag, []);
+      tagMap.get(tag)!.push(post);
+    }
+  }
+
+  return [...tagMap.entries()].map(([tag, tagPosts]) => ({
+    params: { tag },
+    props: { posts: tagPosts },
+  }));
+}
+
+const { tag } = Astro.params;
+const { posts } = Astro.props;
+---
+<BaseLayout title={`#${tag} | mmmaxwwwell's blog`} description={`Posts tagged "${tag}".`}>
+  <main class="flex-1 max-w-3xl mx-auto px-4 py-6 sm:py-12 w-full">
+    <div class="mb-6 sm:mb-8">
+      <h1 class="text-2xl sm:text-3xl font-bold mb-3">#{tag}</h1>
+      <a
+        href="/blog/tags/"
+        class="text-sm text-text-muted hover:text-[var(--accent-pink)] transition-colors"
+      >
+        &larr; All tags
+      </a>
+    </div>
+
+    {posts.length > 0 ? (
+      <div class="flex flex-col gap-4">
+        {posts.map((post) => (
+          <PostCard
+            title={post.data.title}
+            description={post.data.description}
+            date={post.data.date}
+            category={post.data.category}
+            tags={post.data.tags}
+            slug={post.id}
+          />
+        ))}
+      </div>
+    ) : (
+      <p class="text-text-muted">No posts with this tag yet.</p>
+    )}
+  </main>
+</BaseLayout>

@@ -1,0 +1,70 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PostCard from '../../components/PostCard.astro';
+
+export async function getStaticPaths() {
+  const posts = (await getCollection('blog', ({ data }) => !data.draft))
+    .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+
+  const categories = [...new Set(posts.map((post) => post.data.category))].sort();
+
+  return categories.map((cat) => ({
+    params: { category: cat },
+    props: {
+      posts: posts.filter((post) => post.data.category === cat),
+      allCategories: categories,
+    },
+  }));
+}
+
+const { category } = Astro.params;
+const { posts, allCategories } = Astro.props;
+---
+<BaseLayout title={`${category} | mmmaxwwwell's blog`} description={`Posts in the ${category} category.`}>
+  <main class="flex-1 max-w-3xl mx-auto px-4 py-6 sm:py-12 w-full">
+    <h1 class="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6">{category}</h1>
+
+    <!-- Category filter links -->
+    <nav class="flex flex-wrap gap-2 mb-6 sm:mb-8">
+      <a
+        href="/blog/posts/"
+        class="px-3 py-1 rounded-full text-sm border border-border text-text-muted hover:border-[var(--accent-pink)] hover:text-[var(--accent-pink)] transition-colors"
+      >
+        All
+      </a>
+      {allCategories.map((cat) => (
+        cat === category ? (
+          <span class="px-3 py-1 rounded-full text-sm border bg-[var(--accent-pink)] border-[var(--accent-pink)] text-white">
+            {cat}
+          </span>
+        ) : (
+          <a
+            href={`/blog/category/${cat}/`}
+            class="px-3 py-1 rounded-full text-sm border border-border text-text-muted hover:border-[var(--accent-pink)] hover:text-[var(--accent-pink)] transition-colors"
+          >
+            {cat}
+          </a>
+        )
+      ))}
+    </nav>
+
+    <!-- Posts -->
+    {posts.length > 0 ? (
+      <div class="flex flex-col gap-4">
+        {posts.map((post) => (
+          <PostCard
+            title={post.data.title}
+            description={post.data.description}
+            date={post.data.date}
+            category={post.data.category}
+            tags={post.data.tags}
+            slug={post.id}
+          />
+        ))}
+      </div>
+    ) : (
+      <p class="text-text-muted">No posts in this category yet.</p>
+    )}
+  </main>
+</BaseLayout>

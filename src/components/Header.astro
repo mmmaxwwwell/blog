@@ -1,0 +1,87 @@
+---
+import ThemeToggle from './ThemeToggle.astro';
+
+const navLinks = [
+  { href: '/blog/', label: 'Home' },
+  { href: '/blog/posts/', label: 'Blog' },
+  { href: '/blog/about/', label: 'About' },
+];
+
+const currentPath = Astro.url.pathname;
+---
+<header class="border-b border-border bg-bg-surface/50 backdrop-blur-sm sticky top-0 z-50">
+  <nav class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
+    <a href="/blog/" class="text-lg font-bold tracking-tight hover:text-[var(--accent-pink)] transition-colors">
+      mmmaxwwwell
+    </a>
+
+    <!-- Desktop nav -->
+    <div class="hidden sm:flex items-center gap-6">
+      {navLinks.map(link => (
+        <a
+          href={link.href}
+          class:list={[
+            'text-sm font-medium transition-colors',
+            currentPath === link.href || (link.href !== '/blog/' && currentPath.startsWith(link.href))
+              ? 'text-[var(--accent-pink)]'
+              : 'text-text-muted hover:text-text-primary',
+          ]}
+        >
+          {link.label}
+        </a>
+      ))}
+      <ThemeToggle />
+    </div>
+
+    <!-- Mobile menu button + theme toggle -->
+    <div class="flex sm:hidden items-center gap-2">
+      <ThemeToggle />
+      <button
+        id="mobile-menu-btn"
+        type="button"
+        aria-label="Toggle menu"
+        class="p-2 rounded-lg border border-border hover:border-[var(--accent-cyan)] transition-colors cursor-pointer"
+      >
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path id="hamburger-icon" d="M4 6h16M4 12h16M4 18h16" />
+          <path id="close-icon" class="hidden" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Mobile nav drawer -->
+  <div id="mobile-menu" class="hidden sm:hidden border-t border-border bg-bg-surface/95 backdrop-blur-sm">
+    <div class="px-4 py-3 flex flex-col gap-2">
+      {navLinks.map(link => (
+        <a
+          href={link.href}
+          class:list={[
+            'text-sm font-medium py-2 px-3 rounded-lg transition-colors',
+            currentPath === link.href || (link.href !== '/blog/' && currentPath.startsWith(link.href))
+              ? 'text-[var(--accent-pink)] bg-bg-surface'
+              : 'text-text-muted hover:text-text-primary hover:bg-bg-surface',
+          ]}
+        >
+          {link.label}
+        </a>
+      ))}
+    </div>
+  </div>
+</header>
+
+<script is:inline>
+  (function () {
+    const btn = document.getElementById('mobile-menu-btn');
+    const menu = document.getElementById('mobile-menu');
+    const hamburger = document.getElementById('hamburger-icon');
+    const close = document.getElementById('close-icon');
+
+    btn.addEventListener('click', () => {
+      const isOpen = !menu.classList.contains('hidden');
+      menu.classList.toggle('hidden');
+      hamburger.classList.toggle('hidden');
+      close.classList.toggle('hidden');
+    });
+  })();
+</script>

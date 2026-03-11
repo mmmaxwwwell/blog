@@ -1,0 +1,36 @@
+---
+import TagList from './TagList.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  date: Date;
+  category: string;
+  tags: string[];
+  slug: string;
+  heroImage?: string;
+}
+
+const { title, description, date, category, tags, slug, heroImage } = Astro.props;
+
+const formattedDate = date.toLocaleDateString('en-US', {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+});
+---
+<article class="group rounded-lg border border-border bg-bg-surface/50 hover:border-[var(--accent-pink)] transition-colors">
+  <a href={`/blog/${slug}/`} class="block p-4 sm:p-5">
+    <div class="flex items-center gap-3 text-xs text-text-muted mb-2">
+      <time datetime={date.toISOString()}>{formattedDate}</time>
+      <span class="text-[var(--accent-purple)]">{category}</span>
+    </div>
+    <h3 class="text-lg font-semibold text-text-primary group-hover:text-[var(--accent-pink)] transition-colors mb-2">
+      {title}
+    </h3>
+    <p class="text-sm text-text-muted leading-relaxed mb-3">{description}</p>
+  </a>
+  <div class="px-4 sm:px-5 pb-3 sm:pb-4">
+    <TagList tags={tags} />
+  </div>
+</article>
