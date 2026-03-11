@@ -2,16 +2,16 @@
 import ThemeToggle from './ThemeToggle.astro';
 
 const navLinks = [
-  { href: '/blog/', label: 'Home' },
-  { href: '/blog/posts/', label: 'Blog' },
-  { href: '/blog/about/', label: 'About' },
+  { href: '/', label: 'Home' },
+  { href: '/posts/', label: 'Blog' },
+  { href: '/about/', label: 'About / Hire' },
 ];
 
 const currentPath = Astro.url.pathname;
 ---
 <header class="border-b border-border bg-bg-surface/50 backdrop-blur-sm sticky top-0 z-50">
   <nav class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-    <a href="/blog/" class="text-lg font-bold tracking-tight hover:text-[var(--accent-pink)] transition-colors">
+    <a href="/" class="text-lg font-bold tracking-tight hover:text-[var(--accent-pink)] transition-colors">
       mmmaxwwwell
     </a>
 
@@ -22,7 +22,7 @@ const currentPath = Astro.url.pathname;
           href={link.href}
           class:list={[
             'text-sm font-medium transition-colors',
-            currentPath === link.href || (link.href !== '/blog/' && currentPath.startsWith(link.href))
+            currentPath === link.href || (link.href !== '/' && currentPath.startsWith(link.href))
               ? 'text-[var(--accent-pink)]'
               : 'text-text-muted hover:text-text-primary',
           ]}
@@ -58,7 +58,7 @@ const currentPath = Astro.url.pathname;
           href={link.href}
           class:list={[
             'text-sm font-medium py-2 px-3 rounded-lg transition-colors',
-            currentPath === link.href || (link.href !== '/blog/' && currentPath.startsWith(link.href))
+            currentPath === link.href || (link.href !== '/' && currentPath.startsWith(link.href))
               ? 'text-[var(--accent-pink)] bg-bg-surface'
               : 'text-text-muted hover:text-text-primary hover:bg-bg-surface',
           ]}

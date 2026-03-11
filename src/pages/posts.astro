@@ -20,7 +20,7 @@ const categories = [...new Set(posts.map((post) => post.data.category))].sort();
         </span>
         {categories.map((cat) => (
           <a
-            href={`/blog/category/${cat}/`}
+            href={`/category/${cat}/`}
             class="px-3 py-1 rounded-full text-sm border border-border text-text-muted hover:border-[var(--accent-pink)] hover:text-[var(--accent-pink)] transition-colors"
           >
             {cat}

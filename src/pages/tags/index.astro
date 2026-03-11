@@ -21,7 +21,7 @@ const tags = [...tagCounts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
       <div class="flex flex-wrap gap-3">
         {tags.map(([tag, count]) => (
           <a
-            href={`/blog/tags/${tag}/`}
+            href={`/tags/${tag}/`}
             class="px-4 py-2 rounded-full text-sm border border-border text-text-muted hover:border-[var(--accent-pink)] hover:text-[var(--accent-pink)] transition-colors"
           >
             {tag} <span class="text-text-muted opacity-60">({count})</span>

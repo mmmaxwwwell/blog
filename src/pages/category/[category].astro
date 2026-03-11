@@ -28,7 +28,7 @@ const { posts, allCategories } = Astro.props;
     <!-- Category filter links -->
     <nav class="flex flex-wrap gap-2 mb-6 sm:mb-8">
       <a
-        href="/blog/posts/"
+        href="/posts/"
         class="px-3 py-1 rounded-full text-sm border border-border text-text-muted hover:border-[var(--accent-pink)] hover:text-[var(--accent-pink)] transition-colors"
       >
         All
@@ -40,7 +40,7 @@ const { posts, allCategories } = Astro.props;
           </span>
         ) : (
           <a
-            href={`/blog/category/${cat}/`}
+            href={`/category/${cat}/`}
             class="px-3 py-1 rounded-full text-sm border border-border text-text-muted hover:border-[var(--accent-pink)] hover:text-[var(--accent-pink)] transition-colors"
           >
             {cat}

@@ -19,7 +19,7 @@ This is a personal tech blog for mmmaxwwwell. You are the content-creation agent
    ```
 3. Write the post content in MDX below the frontmatter
 4. Verify the post builds: `npm run build`
-5. Preview locally if needed: `npm run dev` (site at `http://localhost:4321/blog/`)
+5. Preview locally if needed: `npm run dev` (site at `http://localhost:4321/`)
 
 ## Categories
 Use one of these (add new ones if a project genuinely doesn't fit):
@@ -61,7 +61,7 @@ Use one of these (add new ones if a project genuinely doesn't fit):
 
 ## Working with images
 - Place images in `public/images/` with a subfolder matching the post slug: `public/images/building-my-blog/hero.jpg`
-- Reference in MDX as `![alt text](/blog/images/building-my-blog/hero.jpg)` (note the `/blog` base path)
+- Reference in MDX as `![alt text](/images/building-my-blog/hero.jpg)`
 - Use descriptive alt text
 
 ## Commit messages
@@ -73,4 +73,15 @@ Use one of these (add new ones if a project genuinely doesn't fit):
 - Check that frontmatter is complete and valid
 - Ensure tags are consistent with existing posts
 - Make sure code snippets are syntax-highlighted (correct language tag)
-- Confirm images load correctly (correct paths with `/blog` prefix)
+- Confirm images load correctly
+- Re-index embeddings: run `npm run --prefix embeddings index` (requires Ollama running locally with `nomic-embed-text`)
+- Commit `embeddings/db/blog.db` alongside the new post
+
+## Embeddings / semantic search
+- The `embeddings/` directory contains an MCP server for semantic search over blog posts
+- Posts are chunked by `##` headings and embedded locally via Ollama + `nomic-embed-text`
+- The SQLite database (`embeddings/db/blog.db`) is committed to the repo — embeddings are generated locally, never in CI
+- GitHub Actions only builds and deploys the Astro site; it does not touch embeddings
+- To re-index: ensure Ollama is running, then `npm run --prefix embeddings index`
+- To search manually: `npm run --prefix embeddings search -- "your query"`
+- To start the MCP server: `npm run --prefix embeddings serve`
