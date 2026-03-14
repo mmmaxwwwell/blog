@@ -23,7 +23,7 @@ The interview itself follows a specific sequence: project overview, tech stack, 
 
 ## From conversation to working blog
 
-I started with a blank repo and one message: "I want to host a blog on github pages. use [the generator prompt](https://github.com/mmmaxwwwell/agent-framework/blob/main/generator-prompt.md) to help me start."
+I started with a blank repo and one message: "I want to host a blog on github pages. use [the generator prompt](https://github.com/mmmaxwwwell/agent-framework/blob/72966b133bc5b714a313c26875bfd14ff11c26dc/generator-prompt.md) to help me start."
 
 The generator fetched the prompt, saw the empty repo, and started the interview. First question: what kind of blog, what topics, any preference on the static site generator? I told it I'd be writing about hobbyist electronics, OpenSCAD, 3D printing, and software projects, and that I didn't have a preference on the generator. I asked it to create a list of pros and cons and let me pick one. It researched Hugo, Astro, Jekyll, and 11ty and came back with a comparison table:
 
@@ -42,10 +42,10 @@ The generator summarized everything back to me for confirmation: the URL structu
 
 It produced four files:
 
-- [blog-prompt.md](https://github.com/mmmaxwwwell/blog/blob/main/src/content/blog/2026-03-10-building-my-blog-with-astro/blog-prompt.md), the full project spec: target file structure, retrowave color palette with hex values for both dark and light modes, content collection schema in TypeScript, page routing for every URL, GitHub Pages deploy config, and the session-by-session workflow rules
-- [blog-tasks.md](https://github.com/mmmaxwwwell/blog/blob/main/src/content/blog/2026-03-10-building-my-blog-with-astro/blog-tasks.md), 18 tasks across 5 phases: project scaffolding (init, theming, layouts, header, footer), content infrastructure (schema, post layout, cards, tag components), pages (home, blog index, post pages, categories, tags, about), polish and deploy (responsive, SEO, RSS, GitHub Actions, sample posts, final review), and content agent setup
-- [blog-notes.md](https://github.com/mmmaxwwwell/blog/blob/main/src/content/blog/2026-03-10-building-my-blog-with-astro/blog-notes.md), architecture decisions, the full color palette table, dark/light mode implementation plan, deployment config, typography choices, and reference links to Astro docs, Tailwind docs, and Shiki
-- [CLAUDE.md](https://github.com/mmmaxwwwell/blog/blob/main/src/content/blog/2026-03-10-building-my-blog-with-astro/CLAUDE.md), instructions for a separate content-creation agent: how to create a post, frontmatter schema, writing style guide, category and tag conventions, image handling, and a pre-publish checklist
+- [blog-prompt.md](https://github.com/mmmaxwwwell/blog/blob/857c533ab6cf7dba99ea1985ccf3c46d2ab0ad18/src/content/blog/2026-03-10-building-my-blog-with-astro/blog-prompt.md), the full project spec: target file structure, retrowave color palette with hex values for both dark and light modes, content collection schema in TypeScript, page routing for every URL, GitHub Pages deploy config, and the session-by-session workflow rules
+- [blog-tasks.md](https://github.com/mmmaxwwwell/blog/blob/857c533ab6cf7dba99ea1985ccf3c46d2ab0ad18/src/content/blog/2026-03-10-building-my-blog-with-astro/blog-tasks.md), 18 tasks across 5 phases: project scaffolding (init, theming, layouts, header, footer), content infrastructure (schema, post layout, cards, tag components), pages (home, blog index, post pages, categories, tags, about), polish and deploy (responsive, SEO, RSS, GitHub Actions, sample posts, final review), and content agent setup
+- [blog-notes.md](https://github.com/mmmaxwwwell/blog/blob/857c533ab6cf7dba99ea1985ccf3c46d2ab0ad18/src/content/blog/2026-03-10-building-my-blog-with-astro/blog-notes.md), architecture decisions, the full color palette table, dark/light mode implementation plan, deployment config, typography choices, and reference links to Astro docs, Tailwind docs, and Shiki
+- [CLAUDE.md](https://github.com/mmmaxwwwell/blog/blob/857c533ab6cf7dba99ea1985ccf3c46d2ab0ad18/src/content/blog/2026-03-10-building-my-blog-with-astro/CLAUDE.md), instructions for a separate content-creation agent: how to create a post, frontmatter schema, writing style guide, category and tag conventions, image handling, and a pre-publish checklist
 
 Then I opened a new Claude Code session in the blog repo and typed "start." That's it. The agent read the prompt file, read the task list, found the first unchecked task (initialize Astro v5 project), and got to work. The next session was "run the task." Same thing, next task. Twenty-five sessions later, the blog was done.
 
@@ -101,7 +101,7 @@ You get two wins: lower cost (less context per session) and higher quality (the 
 
 Full transparency: the posts on this blog are also AI-assisted. I'm an engineer, not a writer. I've always had projects I wanted to share, but sitting down to write a polished blog post about them was the part that never happened. I'd build something cool, think "I should write about this," and then never do it because staring at a blank page isn't my idea of a good time.
 
-So the blog has a [CLAUDE.md](https://github.com/mmmaxwwwell/blog/blob/main/CLAUDE.md) file with instructions for a content-creation agent. I describe the project, what I built, what went wrong, what I learned, and the agent turns that into a readable post. The technical substance is mine. The prose is a collaboration. I review everything, edit for accuracy, and make sure it actually sounds like me, but the heavy lifting of turning scattered notes into coherent paragraphs happens with AI.
+So the blog has a [CLAUDE.md](https://github.com/mmmaxwwwell/blog/blob/857c533ab6cf7dba99ea1985ccf3c46d2ab0ad18/CLAUDE.md) file with instructions for a content-creation agent. I describe the project, what I built, what went wrong, what I learned, and the agent turns that into a readable post. The technical substance is mine. The prose is a collaboration. I review everything, edit for accuracy, and make sure it actually sounds like me, but the heavy lifting of turning scattered notes into coherent paragraphs happens with AI.
 
 I don't think this is something to be embarrassed about. The value of a technical blog post is in the ideas, the solutions, the "here's what actually worked." Not in whether I personally agonized over every sentence. If AI means the difference between these projects living in my head forever and actually being published where someone else might find them useful, that's a good trade.
 

@@ -64,6 +64,12 @@ Use one of these (add new ones if a project genuinely doesn't fit):
 - Reference in MDX as `![alt text](/images/building-my-blog/hero.jpg)`
 - Use descriptive alt text
 
+## Linking to code in other repos
+- When linking to files in external GitHub repos, always link to a specific commit hash, not `main` or `master`
+- This ensures the link stays valid even if the file changes or moves later
+- Example: use `https://github.com/user/repo/blob/abc123def/path/file.ts` not `https://github.com/user/repo/blob/main/path/file.ts`
+- Get the hash with `git rev-parse HEAD` in the target repo
+
 ## Commit messages
 - Use conventional commits: `content: add post about ESP32 MQTT sensor`
 - One post per commit unless they're closely related
