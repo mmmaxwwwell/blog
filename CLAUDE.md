@@ -38,26 +38,42 @@ Use one of these (add new ones if a project genuinely doesn't fit):
 
 ### Voice & tone
 - **First person**, conversational but technically rigorous
-- Write like you're explaining to a sharp friend — not dumbing down, not showing off
+- Write like you're explaining to a sharp friend, not dumbing down, not showing off
 - Show enthusiasm for the work without being over the top
-- Be honest about what didn't work, dead ends, and lessons learned — readers learn more from failures than successes
+- Be honest about what didn't work, dead ends, and lessons learned. Readers learn more from failures than successes
+
+### Accuracy is non-negotiable
+- **Verify every factual claim** against the source material. Count the actual FRs, read the actual interview flow, check the actual file structure. Don't round or approximate when you can be precise.
+- **Don't take credit for things you didn't build.** If a convention comes from a library/tool/framework, attribute it. If the user wrote a wrapper around someone else's tool, make the distinction clear throughout the post, not just in the intro.
+- **Don't overclaim.** If something is a qualitative benchmark, don't call it a regression test. If the LLM is non-deterministic, say so. If a feature is "mechanically possible but manual," don't describe it as built-in.
+- **Be honest about LLM limitations.** If a multi-pass loop exists because LLMs cap their own output at ~8 issues even when told to be exhaustive, say that. Don't frame workarounds for LLM limitations as elegant design choices.
+
+### What to focus on
+- **Cover everything that's novel.** Don't cut interesting content to hit a word count. If the project has 10 novel aspects, cover all 10. Thoroughness over brevity.
+- **Go deep on mechanisms.** Don't just say "there's a fix-validate loop." Explain *how* it works, *why* it's designed that way, and what specific problem each design choice solves. Show the actual data structures (validate/phase2/1.md, test-logs/summary.json).
+- **Use real artifacts as evidence.** Quote actual entries from learnings.md, actual interview exchanges, actual validation results. Concrete examples are more convincing than descriptions.
+- **The meta angle matters.** If building projects is a feedback loop for refining the tool, that's worth covering. If interview transcripts can be used as benchmarks, that's interesting. If you're dogfooding, say so.
+- **Explain the "why" behind workarounds.** "Agents skip validation" is less interesting than "when you have parallel agents, no single agent can know it's the last one in a phase, so validation falls through the cracks." The structural reason is the insight.
 
 ### Structure
-- **Lead with the hook** — what did you build, what problem does it solve, why should the reader care? Don't start with backstory
-- **Show, don't just tell** — include code snippets, photos, screenshots, diagrams, STL renders. A post about a PCB should show the PCB
+- **Lead with the hook**: what did you build, what problem does it solve, why should the reader care? Don't start with backstory
+- **Show, don't just tell**: include code snippets, photos, screenshots, diagrams, STL renders. A post about a PCB should show the PCB
 - **Use headings** to break up sections. Reader should be able to skim the headings and get the gist
-- **Code blocks** — use fenced code blocks with language tags (```python, ```typescript, ```scad, ```bash, etc.). Keep snippets focused — show the relevant part, not the entire file
-- **End with a takeaway** — what's next, what would you do differently, what did you learn
+- **Code blocks**: use fenced code blocks with language tags (```python, ```typescript, ```scad, ```bash, etc.). Keep snippets focused, show the relevant part, not the entire file
+- **End with a takeaway**: what's next, what would you do differently, what did you learn
 
 ### Length
-- Aim for 800-2000 words. Long enough to be useful, short enough to finish
+- No hard word limit. Write as long as the content warrants. If 3000 words covers everything novel and each section earns its place, that's fine.
+- Don't pad, but don't cut interesting content to stay short either.
 - If a project is massive, break it into a series of posts rather than one mega-post
 
 ### Things to avoid
-- Don't start with "In this post, I will..." — just start
+- Don't start with "In this post, I will..." or similar. Just start
 - Don't over-explain obvious things to pad length
 - Don't use AI-slop phrases: "dive into", "let's explore", "in the ever-evolving landscape", "it's worth noting", "leverage", "harness the power of"
-- Don't add disclaimers or hedging — be direct
+- Don't add disclaimers or hedging. Be direct
+- **Never use em dashes (—).** Use commas, periods, semicolons, parentheses, or just restructure the sentence. Em dashes are an immediate tell for AI-generated text.
+- Don't describe things as "elegant" or "clever." Describe what they do and let the reader decide.
 
 ## Working with images
 - Place images in `public/images/` with a subfolder matching the post slug: `public/images/building-my-blog/hero.jpg`
