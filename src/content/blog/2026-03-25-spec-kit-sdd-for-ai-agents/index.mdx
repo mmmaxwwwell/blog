@@ -1,0 +1,238 @@
+---
+title: "Making Spec-Kit Produce High-Quality Software with AI Agents"
+description: "I wrapped spec-kit's SDD workflow in a Claude Code skill that adds research-driven interviews, disk-based fix-validate loops, structured test output, and a parallel agent runner. Here's how the skill works and what the output looks like on a real project."
+date: 2026-03-25
+category: "software-dev"
+tags: ["claude", "ai-agents", "spec-kit", "specification-driven-development"]
+draft: false
+---
+
+Two weeks ago I wrote about my [agent framework](../2026-03-10-building-my-blog-with-astro/), a structured interview that generates three files so an AI agent can build a project session by session. That framework worked, but it had two problems. First, there was no spec. You'd type a word salad into the chat, the agent would extract what it could, and none of it was saved. When a later session needed to understand why a decision was made, there was nothing to go back to. There was no traceability from requirements to tests, no validation that the plan was consistent, no structured way for agents to recover when something broke. Second, the interview didn't ask enough questions. The agent would get a shallow understanding of the project and then I'd spend the implementation phase babysitting it through decisions it should have asked about upfront. Every ambiguity the interview missed became a point where I had to intervene manually, which defeated the whole purpose of autonomous agents.
+
+[Spec-kit](https://pypi.org/project/specify-cli/) (`specify` CLI) already solves the spec part. It's a toolkit for Specification-Driven Development that scaffolds projects with slash commands for writing specs, running analysis, generating plans, and breaking them into tasks. The workflow is solid. But out of the box, it doesn't know how to interview you effectively, it doesn't enforce that agents actually run tests, and it has no opinion about how implementing agents should handle failures or blockers.
+
+So I wrote a [Claude Code skill](https://github.com/mmmaxwwwell/agent-framework/blob/9215b1914fb18e6bf58c3b4c7fb309e196898f82/.claude/skills/spec-kit/SKILL.md) that wraps spec-kit's workflow and adds everything needed to go from spec to working software with AI agents: a research-driven interview process, a preset system that scales infrastructure requirements to the project size, decision logs that constrain downstream agents, a parallel task runner that spawns fresh agents per task, runner-enforced validation at phase boundaries, structured test output so agents can actually read failures, and an auto-unblocking decision tree. The spec, not the agent's memory, is the source of truth.
+
+I used the skill to build [claude-code-voice-vscode](https://github.com/mmmaxwwwell/claude-code-voice-vscode), a VS Code extension that adds always-listening voice input to Claude Code using a fully local FOSS audio pipeline. That project became the first real test of every part of the system: the interview, the analysis loop, the parallel runner, the fix-validate cycle. Here's what the skill adds on top of spec-kit, and what the output actually looks like on a real project.
+
+## The interview: research first, propose second
+
+Spec-kit's built-in `/speckit.specify` command gives you a template and expects you to fill it in. The skill replaces that with an interactive interview. It starts by asking you to describe the project, then goes and researches the problem space based on what you said (finding similar projects, common patterns, and pitfalls in the domain) before it starts asking detailed questions. When I described wanting a voice extension for Claude Code, the skill went off and searched for existing projects, came back with RealtimeSTT, voice-mode (PyPI), VoxPilot, and Claude Code's native voice mode, and laid out what each one does well and where they fall short:
+
+- RealtimeSTT had the best reference architecture for a mic-to-STT pipeline: two-stage VAD with a pre-speech buffer to avoid clipping initial phonemes
+- Porcupine had better DX for custom wake words but commercial licensing
+- Energy-based VAD (what VoxPilot uses) fails in noisy environments
+
+Then it proposed concrete decisions based on what it found. Instead of "what VAD strategy do you want?", it said "two-stage VAD (WebRTC for fast rejection, Silero via ONNX for neural confirmation) is the dominant pattern, and it avoids pulling in full PyTorch." I said yes. Instead of "how should chunks end?", it laid out the tradeoffs between silence-based and command-word-based termination, and I picked command words because silence timeouts fire too early when you're thinking mid-sentence.
+
+The interview covers a lot of ground: edge cases, failure modes, logging, error handling, shutdown behavior, config validation, CI pipelines, developer experience. The skill has a topic checklist that scales with the project's preset (a proof-of-concept gets 3-5 questions, an enterprise project gets exhaustive probing). For claude-voice under the "local" preset, it asked about everything from "what happens when the sidecar crashes mid-transcription" to "should config validation fail-fast or continue with last-known-good values." But the format makes it manageable: most questions were "here's what I'd recommend based on the research, here are the alternatives and why I'd reject them, does this work?" The questions that actually required me to make a real call were: Unix socket vs stdin/stdout for sidecar communication, openWakeWord vs Porcupine for wake words (FOSS requirement made this easy), and whether chunks end on silence or command words.
+
+Everything I said, including the things I rejected, got written to `interview-notes.md` and `research.md`. This isn't just for humans to read later. These files are constraint documents for implementing agents downstream, and they're what the auto-unblocking agents consult when they need to resolve a problem without bothering you.
+
+The thoroughness is the point, and the timing is right. Claude's new 1M token context window makes this kind of exhaustive interview practical in a way it wasn't before. Before I refactored the skill into lazy-loaded phase files, the single prompt was 115K tokens, more than half of Claude's original 200K context window. That left barely enough room for the agent to do actual work. The skill generates a lot of artifacts: spec, research, interview notes, reference files, plan, tasks, learnings, protocol contracts. Implementing agents need to load most of this to do their job well. With a smaller context window, you'd have to choose between a thorough spec and an agent that can actually read it all. With 1M tokens, there's room for both.
+
+With the original agent framework, a 5-minute interview produced a prompt that was good enough to start building but not good enough to finish without me. Every question the interview skipped became an interruption later: "should I use Express or raw http?" "do you want Docker or Nix?" "what should happen when the config is invalid?" The skill's interview is exhaustive by design: it probes edge cases, failure modes, infrastructure decisions, and developer experience because every decision captured upfront is one less `BLOCKED.md` during implementation. The tradeoff is a 20-minute interview instead of a 5-minute one, but the payoff is agents that can run for hours without asking you anything.
+
+## Presets: scaling the process to the project
+
+Not every project needs 60 functional requirements and a CI pipeline. The skill has a preset system that controls how heavy the process is:
+
+| Preset | Use when | Interview depth | Infrastructure |
+|--------|----------|-----------------|---------------|
+| **poc** | Throwaway prototype | 3-5 questions | None. console.log, hardcoded config, no tests |
+| **local** | Single-user tool | 5-10 questions | Full test infra, CI/CD, structured logging, error hierarchy. No auth/CORS/rate-limiting |
+| **extension** | IDE/browser plugin | 8-12 questions | Full test infra with host platform harness, store publish pipeline |
+| **enterprise** | Multi-user production | Exhaustive | Everything: auth, observability, rate limiting, security scanning, the works |
+
+The preset overrides the skill's phase files at every stage. If the preset says "skip auth," the interview doesn't ask about auth, the plan doesn't include auth tasks, and the task list doesn't generate auth implementation. But the knowledge stays available: if you ask about auth anyway, the skill references its auth documentation and advises.
+
+You can also upgrade presets mid-project. Start with POC to validate the idea quickly, then upgrade to local or enterprise when you're ready to harden it. The skill reads the existing spec and interview notes, identifies what the new preset adds, and walks through only the new decisions. You don't re-answer questions you already covered. That's what happened with claude-voice: I started on the "local" preset, then updated the preset's requirements, and the skill diffed the delta and added the missing infrastructure (structured logging, shutdown hooks, config validation) as retroactive tasks.
+
+## Decision logs that agents actually check
+
+This is the part I think matters most, and the part that's hardest to get right with AI agents: preventing them from re-litigating decisions you already made.
+
+In the original agent framework, if an implementing agent hit a blocker (say, a library wasn't working) it would try whatever seemed reasonable. Sometimes that meant reaching for Docker when I'd explicitly said I wanted Nix. Sometimes it meant switching from the chosen database to SQLite because "it's simpler." The agent had no memory of why the original decision was made, so every blocker became a fresh design decision with no constraints.
+
+The skill fixes this with two files that agents must consult before attempting to resolve any blocker:
+
+**`research.md`** documents every technology decision with three fields: what was chosen, why, and what was rejected. Here's a real entry from the claude-voice project:
+
+```
+### Wake Word Engine
+Decision: openWakeWord (Apache 2.0)
+Rationale: User requires fully FOSS stack. openWakeWord is Apache 2.0,
+runs on CPU with TFLite, supports custom wake word training.
+Alternatives rejected:
+- Porcupine: Better DX but commercial licensing. User's FOSS requirement
+  is non-negotiable.
+- Snowboy: Abandoned/unmaintained.
+```
+
+**`interview-notes.md`** captures user priorities, pushbacks, and non-obvious requirements. When the auto-unblocking system evaluates a candidate solution, it filters against these documents first. If I said "no Docker" during the interview, an agent that hits a dependency problem won't try spinning up a container. It'll look for a Nix-based solution because the interview notes say Docker was rejected.
+
+This is the difference between "the agent knows what to build" and "the agent knows what constraints it's building under." The former is a prompt. The latter is institutional knowledge.
+
+## The fix-validate loop
+
+AI coding agents will run tests if you tell them to, but the problem is structural: when you have multiple agents working in parallel, no single agent can reliably know it's the last one finishing a phase, so nobody runs the full validation. And even when an agent does run tests, it's self-reporting. There's nothing external enforcing that tests actually passed before the next phase starts.
+
+The skill makes validation structural. The [parallel runner](https://github.com/mmmaxwwwell/agent-framework/blob/9215b1914fb18e6bf58c3b4c7fb309e196898f82/.claude/skills/spec-kit/phases/implement.md), not the implementing agents, controls when validation happens. The loop works like this:
+
+1. Agents implement tasks T010, T011, T012 (all in Phase 2). Each marks its task done and commits.
+2. The runner detects all Phase 2 tasks are complete. It spawns a **dedicated validation agent**.
+3. The validation agent runs the test suite. If it passes, it writes `validate/phase2/1.md` with `PASS` and the runner unlocks Phase 3.
+4. If it fails, it writes `validate/phase2/1.md` with `FAIL` (including the command that failed, exit code, and structured test output) then appends a fix task to the task list.
+5. The next runner iteration picks up the fix task with a **fresh agent** that has full context budget. It reads the failure history from `validate/phase2/`, reads the structured test logs, diagnoses, and fixes.
+6. After the fix, the runner spawns another validation agent. Still failing? `validate/phase2/2.md`, another fix task.
+7. After 10 failed attempts, write `BLOCKED.md` and stop.
+
+Three properties make this work where "just tell the agent to run tests" doesn't:
+
+**Runner-enforced, not agent-discretionary.** Validation is triggered by the scheduler. Agents can't skip it, forget it, or decide the tests are "probably fine."
+
+**Each fix gets a fresh agent.** No context degradation. The fifth attempt at fixing a test failure has the same context budget as the first. The agent reads the full failure history from disk (`validate/phase2/1.md` through `validate/phase2/4.md`) so it knows what was already tried without having lived through it.
+
+**Failure history accumulates on disk.** Nothing is lost between runs. Each validation result is a file, not a message in a conversation that might get compressed away. The fix agent can read the entire history of what broke and what was attempted.
+
+In the claude-voice project, Phase 1 (setup), Phase 2 (sidecar core), Phase 3 (sidecar integration), and Phase 4 (extension protocol) all passed validation on the first attempt: 130 Python tests and 67 TypeScript tests across those phases. That's not always how it goes, but the fact that the system handles failure gracefully means you don't need it to go perfectly every time.
+
+## Structured test output: making failures agent-readable
+
+Here's a subtle problem: even when agents do run tests, they can't read the output. A typical test failure dumps a wall of assertion errors, stack traces, and framework noise. Humans scan for the important parts. Agents burn tokens parsing irrelevant lines and often miss the actual assertion.
+
+The skill requires every project to produce [structured test output](https://github.com/mmmaxwwwell/agent-framework/blob/9215b1914fb18e6bf58c3b4c7fb309e196898f82/.claude/skills/spec-kit/reference/testing.md) in a specific format. Each test run writes to `test-logs/<type>/<timestamp>/` with two artifacts:
+
+**`summary.json`**, the machine-readable overview:
+```json
+{
+  "pass": 42,
+  "fail": 2,
+  "skip": 1,
+  "duration": 12340,
+  "failures": [
+    "session-lifecycle: start → blocked → resume",
+    "ssh-bridge: sign request timeout"
+  ]
+}
+```
+
+**`failures/<test-name>.log`**, one file per failing test with structured fields:
+```
+TEST: ssh-bridge: sign request timeout
+FILE: tests/integration/ssh-agent-bridge.test.ts:142
+ASSERTION: Expected session state to be "failed" after 60s timeout
+  Expected: "failed"
+  Actual:   "running"
+STACK: [full trace]
+CONTEXT: [server logs, captured stderr, request/response bodies]
+```
+
+The fix agent reads `summary.json` to see what failed, then reads only the relevant failure logs. No parsing test runner output, no guessing which line is the assertion vs. the framework boilerplate. The `CONTEXT` field is the real win. It captures server logs and request/response bodies that would otherwise be lost when the test process exits.
+
+Custom test reporters produce this format. The claude-voice project has reporters for both Vitest (TypeScript) and pytest (Python), defined as tasks in Phase 1 so they exist before any feature code is written.
+
+## The parallel runner
+
+The runner parses `tasks.md` for phases, `[P]` parallel markers, and a dependency graph. Tasks marked `[P]` within a phase run concurrently (up to a configurable limit). Sequential tasks block. Phase boundaries respect the dependency graph, so Phase 3 can't start until Phase 2 passes validation.
+
+Each agent gets a fresh `claude` process targeting one specific task. If the project has a `flake.nix`, the runner requires you to launch it from inside `nix develop` so native dependencies are available to all agents. The agent reads the task list, learnings file, and only the reference files relevant to its work. Full context budget, no conversation history from other tasks. This is the same principle as the fix-validate loop: fresh agents are better than long-lived agents because they don't suffer context degradation.
+
+The runner has a TUI mode that shows a live dependency graph with status icons and split panes for each running agent, and a headless mode that writes everything to log files. Rate limits are detected from agent stderr and retried after 60 seconds. No-op detection stops the runner after 5 cycles with no progress.
+
+## The auto-unblocking decision tree
+
+When an agent hits a blocker, the skill doesn't let it immediately write `BLOCKED.md` and punt to a human. It has to evaluate whether it can fix the problem itself first. The [decision process](https://github.com/mmmaxwwwell/agent-framework/blob/9215b1914fb18e6bf58c3b4c7fb309e196898f82/.claude/skills/spec-kit/phases/implement.md) classifies blockers into categories:
+
+| Category | Auto-resolvable? | Examples |
+|----------|-------------------|---------|
+| Tool/dependency installation | Yes | Add to `flake.nix`, never global install |
+| Environment config | Yes | Missing env var, port conflict |
+| Build failure | Yes | Missing import, type error |
+| Test infra setup | Yes | Test database, fixtures, keypairs |
+| Design ambiguity | No | Spec contradiction, unclear requirement |
+| Missing credentials | No | API keys, certificates |
+
+Before attempting any fix, the agent reads `interview-notes.md` and `research.md` to check whether the candidate solution conflicts with a documented user preference. If I said "no Docker" and the obvious fix is a Docker container, the agent skips it and tries the next option.
+
+If the fix requires adding a tool to `flake.nix`, the runner handles the consequence automatically: it detects the `flake.nix` change, drains running agents, and re-execs itself inside the new nix devshell so the tool is on PATH for all subsequent agents. No manual restart needed.
+
+Only after attempting auto-resolution (and optionally spawning a sub-agent to evaluate options) can the agent write `BLOCKED.md`. And when it does, the format is structured: what it needs, what it tried, why it failed, and a suggested resolution for the human.
+
+In practice, the claude-voice project hit the auto-unblocking path multiple times. The learnings file records things like "`sounddevice` loads libportaudio.so.2 at import time, which fails in nix environments where the library path isn't set; use lazy import" and "`webrtcvad` depends on `pkg_resources` at import time; same lazy import pattern." These are exactly the kind of environment issues that would produce a `BLOCKED.md` without auto-unblocking, but instead the agents resolved them and recorded the solution for future agents.
+
+## learnings.md: shared memory across agents
+
+That learnings file deserves its own explanation because it solves a specific problem with parallel agents: they don't share context.
+
+Agent T010 discovers that `sounddevice` needs a lazy import pattern in Nix. It records this in `learnings.md`. Agent T011 (running in parallel on VAD) hits the exact same pattern with `webrtcvad`. But because it reads `learnings.md` before starting, it already knows the solution. Without this file, T011 would burn 10 minutes rediscovering the same workaround, or worse, solve it differently and create an inconsistency.
+
+Every agent reads `learnings.md` at the start of its run and appends to it at the end. The file accumulates across the entire implementation: gotchas, patterns, environment quirks, decisions made during implementation that aren't in the spec. It's a disk-based shared memory for agents that never share a conversation.
+
+In the claude-voice project, learnings.md grew to 32 entries. Some highlights:
+
+- `npm` and `node` are only available inside `nix develop`, so all commands must run via `nix develop --command bash -c "..."`
+- `uv sync --dev` requires `[tool.uv] dev-dependencies` (the `[project.optional-dependencies] dev` section is NOT sufficient)
+- openWakeWord expects 1280-sample chunks at 16kHz, but the audio pipeline produces 480-sample frames. The detector must accumulate an internal buffer
+- For exponential backoff tests, `vi.runAllTimersAsync()` drains ALL pending timers including reconnect failures. Use `vi.advanceTimersByTimeAsync(0)` instead
+
+These are the kind of things that would burn hours across multiple agents without shared memory.
+
+## Automatic code review (per-phase)
+
+Code review doesn't wait until the end of the project. It runs after every phase, structurally enforced by the runner. Validation and review are combined into a single agent to cut costs: one agent runs tests, and if they pass, reviews the diff and fixes bugs in the same session. The full phase lifecycle is: tasks complete → validate+review → repeat if fixes were applied → phase complete.
+
+After all tasks in a phase are done, the runner spawns a combined validate+review agent that runs the test suite, then loads the appropriate [code-review skill](https://github.com/mmmaxwwwell/agent-framework/blob/9215b1914fb18e6bf58c3b4c7fb309e196898f82/.claude/skills/code-review/SKILL.md) (auto-detected from `package.json`: React, Node, or general). The agent diffs the phase's changes and auto-fixes bugs, security vulnerabilities, broken error handling, and missing input validation. If it made fixes, it re-runs tests to verify, then writes a review record to `validate/<phase>/review-N.md`:
+
+- **`REVIEW-CLEAN`**: no bugs found. Phase is complete.
+- **`REVIEW-FIXES`**: fixes were applied and tests pass. The runner spawns another cycle to check the fixes themselves. This repeats until clean, capped at 2 cycles (cycle 3 was always clean in practice, so it's wasted tokens).
+
+Review agents are explicitly instructed to scan the entire diff and find all issues in a single pass, because each review cycle costs a full agent spawn. Without this instruction, agents naturally gravitate toward fixing one thing at a time. Same for fix agents: they list all failures, fix all of them, and self-verify before marking complete. This is another case of working around LLM defaults that waste tokens.
+
+To keep token costs down on subsequent cycles, the runner provides delta diffs: cycle 2+ only sees code changed since the last review commit, not the entire phase diff again. The full phase diff is available for context but the agent starts with the delta to avoid re-reviewing already-reviewed code.
+
+The reason for per-phase instead of end-of-project: issues compound across phases. A bug in Phase 2 may look fine in isolation but cause cascading failures when Phase 3 builds on it. Catching issues early means fix agents have simpler context and fewer moving parts.
+
+## Sandboxing implementation agents
+
+Implementation agents run inside a [bubblewrap (bwrap) sandbox](https://github.com/containers/bubblewrap). Only the project directory is writable. Network access is routed through an allowlist proxy that permits npm registry, PyPI, Nix cache, GitHub, and the Anthropic API. Tools that honor `HTTPS_PROXY` (curl, pip, npm) are constrained to those domains. No credential files are mounted (`~/.ssh/`, `~/.aws/` are absent; `~/.claude/.credentials.json` is mounted read-only for API auth).
+
+This is defense in depth. The skill already instructs agents to use project-scoped installs (`flake.nix`, not `npm install -g`), but instructions are suggestions. The sandbox makes them physical constraints. An agent that tries to `pip install` globally gets a permission error, not a "please don't do that."
+
+There's also a supply chain defense: all `npm install` commands run with `--ignore-scripts`, which blocks postinstall-based attacks. Packages that genuinely need native compilation (like `esbuild` or `better-sqlite3`) get a selective `npm rebuild <pkg>` afterward. Same idea for pip: prefer `--only-binary :all:` to skip `setup.py` execution.
+
+## Evaluating the output: the claude-voice spec
+
+So does the skill actually produce good specs and working software? Let me assess the claude-voice artifacts honestly.
+
+**What works well:**
+
+The spec has 60+ functional requirements with `FR-xxx` IDs and 11 success criteria with `SC-xxx` IDs (both spec-kit conventions that give agents traceable references), a full edge case section covering 20+ failure modes, and a settings table matching the socket protocol contract field-by-field. The analysis loop (three passes) caught real inconsistencies: FR-013 said "pause" but the protocol had no pause action, the silence timeout description was scoped to push-to-talk when it actually applies to all modes, and continuous dictation's accumulation behavior was ambiguous. It took three passes not because there were three rounds of new issues, but because LLMs are non-deterministic and tend to surface about 8 issues per pass even when told to be exhaustive. Running analyze multiple times compensates for that. Each pass catches things the previous one happened to miss.
+
+The interview notes capture the reasoning behind every decision, not just the decision itself. "Use SQLite because this is a single-user local tool" is more useful to an implementing agent than "Use SQLite." The rejected alternatives are documented with reasons: Porcupine rejected for licensing, silence-based termination rejected for premature submission during thinking pauses.
+
+The learnings file grew to 32 entries (covered in detail above), and the pattern worked: later agents consistently avoided mistakes that earlier agents had already hit and documented.
+
+**What's weak:**
+
+The spec was generated under the "local" preset, which correctly skips auth, rate limiting, and observability. But the infrastructure requirements that *were* added (structured logging with correlation IDs, shutdown hook registry, config validation, exit codes) came from a gap analysis after implementation had already started. The original interview didn't surface them because the skill's local preset didn't require them yet. I had to run a second session to compare the updated preset requirements against the existing spec and add everything that was missing. That retroactive patching worked, but it meant some implemented code (errors.py, `__main__.py`) needed new tasks to wire in infrastructure that should have been there from the start.
+
+The spec also doesn't have a `UI_FLOW.md`. The skill's reference material calls for one when a project has a UI, but a VS Code extension with only a status bar item is borderline. The skill could be smarter about when to require it.
+
+## Building projects to refine the skill
+
+The claude-voice project isn't just a thing I wanted to build. It's a feedback loop for the skill itself. Every gap the skill has shows up as a concrete problem during implementation: a missing interview question becomes a `BLOCKED.md`, a weak preset default becomes retroactive tasks, a vague spec section becomes an agent guessing wrong. Using the skill on real projects is how I find those gaps.
+
+The interview conversation is also saved as a JSONL file in Claude Code's project directory, which means I can use it as a benchmark. Modify the skill, start a fresh session, paste in the same answers from the saved conversation, and diff the spec/plan/tasks output against what the old version produced. Did the new version catch the config validation gap? Did the plan generate more specific task descriptions? Same inputs, different skill version, compare the outputs. LLMs are non-deterministic so you won't get identical results, but you can check whether the new version covers gaps that the old one missed. It's not a unit test; it's more like a qualitative benchmark for the skill as a whole.
+
+The interview phase is good at surfacing decisions but sometimes too eager to move on. When I said "yes" to two-stage VAD, it should have probed deeper: "do you want to ship Silero as an ONNX model or as a Python wheel? The ONNX route avoids a PyTorch dependency but requires onnxruntime." That decision ended up in the plan but would have been better captured during the interview. That's a fix I can make to the interview checklist for next time.
+
+The preset system needs a feedback mechanism. When the local preset added requirements after Phase 2 was already implemented, the right answer was obvious (add retroactive tasks), but the skill had to be told to do it. It should detect that implementation has started and automatically scope the delta. That's another thing I only discovered by hitting it on a real project.
+
+I want to be clear: this doesn't reliably produce working software yet. The spec and plan quality is genuinely good, and the system is better than anything else I've tried for autonomous agent development. But "better" is relative. I still come back to broken builds, failing tests, and agents that went sideways on something the spec should have prevented. Every project I run through it surfaces new failure modes that I patch in the skill for next time, and each iteration gets closer. But I can't honestly say it works great. It works *pretty good*, and the gap between pretty good and great is where I'm spending most of my time.
+
+What it did produce is a comprehensive plan for a VS Code extension with a fully specified Python sidecar, 60+ functional requirements, a socket protocol contract, 11 success criteria, and a phased task list that parallel agents could execute without stepping on each other. The first four phases passed validation cleanly: 197 tests across two languages. But the remaining phases haven't been through the runner yet, and the infrastructure that required retroactive patching is a sign the skill's preset system wasn't complete when I started. I'm sharing this because the architecture is interesting and the approach is sound, not because it's a finished product.
+
+## Try it
+
+The skill lives in [mmmaxwwwell/agent-framework](https://github.com/mmmaxwwwell/agent-framework/tree/9215b1914fb18e6bf58c3b4c7fb309e196898f82/.claude/skills/spec-kit). It wraps spec-kit's `specify` CLI and handles install if you don't have it. Point Claude Code at the skill directory and run `/spec-kit` to start the workflow. Answer the interview, review the spec, and let the parallel runner handle implementation. The whole point is that you invest time upfront in the interview so agents can run autonomously for hours without needing you to clarify what they should have asked about from the start.
