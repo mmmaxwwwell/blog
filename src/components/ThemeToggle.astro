@@ -29,12 +29,14 @@
 
     updateIcons();
 
-    document.querySelectorAll('.theme-toggle').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const isLight = document.documentElement.classList.toggle('light');
-        localStorage.setItem('theme', isLight ? 'light' : 'dark');
-        updateIcons();
-      });
+    // Use event delegation on document so all toggle buttons work,
+    // even ones parsed after this script runs
+    document.addEventListener('click', function (e) {
+      const btn = e.target.closest('.theme-toggle');
+      if (!btn) return;
+      const isLight = document.documentElement.classList.toggle('light');
+      localStorage.setItem('theme', isLight ? 'light' : 'dark');
+      updateIcons();
     });
   })();
 </script>

@@ -94,12 +94,32 @@ code {
   background-color: color-mix(in srgb, var(--accent-purple) 40%, transparent);
 }
 
-/* Shiki dual theme — override prefers-color-scheme with class strategy */
+/* Shiki dual theme — class strategy (defaultColor: false in astro.config) */
+/* Dark mode (default): use --shiki-dark variables */
+.shiki,
+.shiki span {
+  color: var(--shiki-dark, var(--text-primary)) !important;
+  background-color: var(--shiki-dark-bg, transparent) !important;
+  font-style: var(--shiki-dark-font-style) !important;
+  font-weight: var(--shiki-dark-font-weight) !important;
+  text-decoration: var(--shiki-dark-text-decoration) !important;
+}
+
+/* Plaintext code blocks: no syntax colors, use readable text */
+.shiki[data-language="plaintext"] code {
+  color: var(--text-primary) !important;
+}
+
+/* Light mode: use --shiki-light variables */
 html.light .shiki,
 html.light .shiki span {
-  color: var(--shiki-light) !important;
-  background-color: var(--shiki-light-bg) !important;
+  color: var(--shiki-light, var(--text-primary)) !important;
+  background-color: var(--shiki-light-bg, transparent) !important;
   font-style: var(--shiki-light-font-style) !important;
   font-weight: var(--shiki-light-font-weight) !important;
   text-decoration: var(--shiki-light-text-decoration) !important;
+}
+
+html.light .shiki[data-language="plaintext"] code {
+  color: var(--text-primary) !important;
 }

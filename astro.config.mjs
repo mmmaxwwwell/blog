@@ -15,6 +15,7 @@ export default defineConfig({
         light: 'github-light',
         dark: 'tokyo-night',
       },
+      defaultColor: false,
     },
   },
 });
