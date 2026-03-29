@@ -26,16 +26,16 @@ const { title, description, date, updated, category, tags, heroImage } = post.da
   <!-- Prev/Next navigation -->
   {(prevPost || nextPost) && (
     <nav class="mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-border flex flex-col sm:flex-row justify-between gap-4">
-      {prevPost ? (
-        <a href={`/${prevPost.id}/`} class="group flex flex-col sm:max-w-[45%]">
-          <span class="text-xs text-text-muted mb-1">&larr; Newer</span>
-          <span class="text-sm font-medium group-hover:text-[var(--accent-pink)] transition-colors">{prevPost.data.title}</span>
+      {nextPost ? (
+        <a href={`/${nextPost.id}/`} class="group flex flex-col sm:max-w-[45%]">
+          <span class="text-xs text-text-muted mb-1">&larr; Older</span>
+          <span class="text-sm font-medium underline decoration-transparent group-hover:decoration-current transition-all">{nextPost.data.title}</span>
         </a>
       ) : <div />}
-      {nextPost ? (
-        <a href={`/${nextPost.id}/`} class="group flex flex-col sm:items-end sm:max-w-[45%] sm:ml-auto">
-          <span class="text-xs text-text-muted mb-1">Older &rarr;</span>
-          <span class="text-sm font-medium group-hover:text-[var(--accent-pink)] transition-colors">{nextPost.data.title}</span>
+      {prevPost ? (
+        <a href={`/${prevPost.id}/`} class="group flex flex-col sm:items-end sm:max-w-[45%] sm:ml-auto">
+          <span class="text-xs text-text-muted mb-1">Newer &rarr;</span>
+          <span class="text-sm font-medium underline decoration-transparent group-hover:decoration-current transition-all">{prevPost.data.title}</span>
         </a>
       ) : <div />}
     </nav>
