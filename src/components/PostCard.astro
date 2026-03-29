@@ -25,7 +25,7 @@ const formattedDate = date.toLocaleDateString('en-US', {
       <time datetime={date.toISOString()}>{formattedDate}</time>
       <span class="text-[var(--accent-purple)]">{category}</span>
     </div>
-    <h3 class="text-lg font-semibold text-text-primary group-hover:text-[var(--accent-pink)] transition-colors mb-2">
+    <h3 class="text-lg font-semibold text-[var(--accent-pink)] group-hover:underline transition-colors mb-2">
       {title}
     </h3>
     <p class="text-sm text-text-muted leading-relaxed mb-3">{description}</p>

@@ -30,7 +30,7 @@ const formattedUpdated = updated?.toLocaleDateString('en-US', {
   <main class="flex-1 w-full max-w-[720px] mx-auto px-4 py-4 sm:py-8">
     <article>
       <header class="mb-6 sm:mb-8">
-        <h1 class="text-3xl sm:text-4xl font-bold mb-3 text-text-primary">{title}</h1>
+        <h1 class="text-3xl sm:text-4xl font-bold mb-3 text-[var(--accent-pink)]">{title}</h1>
         <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-text-muted">
           <time datetime={date.toISOString()}>{formattedDate}</time>
           {formattedUpdated && (
@@ -67,11 +67,11 @@ const formattedUpdated = updated?.toLocaleDateString('en-US', {
   }
 
   .prose :global(h2) {
-    font-size: 1.5rem;
+    font-size: 1.75rem;
     font-weight: 700;
-    margin-top: 2rem;
+    margin-top: 2.5rem;
     margin-bottom: 0.75rem;
-    color: var(--text-primary);
+    color: var(--accent-pink);
   }
 
   .prose :global(h3) {
@@ -79,15 +79,15 @@ const formattedUpdated = updated?.toLocaleDateString('en-US', {
     font-weight: 600;
     margin-top: 1.5rem;
     margin-bottom: 0.5rem;
-    color: var(--text-primary);
+    color: var(--accent-pink);
   }
 
   .prose :global(h4) {
-    font-size: 1.1rem;
+    font-size: 1rem;
     font-weight: 600;
     margin-top: 1.25rem;
-    margin-bottom: 0.5rem;
-    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+    color: var(--accent-pink);
   }
 
   .prose :global(p) {
@@ -180,8 +180,9 @@ const formattedUpdated = updated?.toLocaleDateString('en-US', {
   }
 
   .prose :global(a) {
+    color: var(--accent-cyan);
     text-decoration: underline;
-    text-decoration-color: color-mix(in srgb, var(--accent-pink) 40%, transparent);
+    text-decoration-color: color-mix(in srgb, var(--accent-cyan) 40%, transparent);
     text-underline-offset: 2px;
   }
 
