@@ -17,20 +17,18 @@ const currentPath = Astro.url.pathname;
 
     <!-- Desktop nav -->
     <div class="hidden sm:flex items-center gap-6">
-      {navLinks.map(link => (
-        <a
-          href={link.href}
-          class:list={[
-            'text-sm font-medium transition-colors',
-            currentPath === link.href || (link.href !== '/' && currentPath.startsWith(link.href))
-              ? 'text-[var(--accent-pink)]'
-              : 'text-text-muted hover:text-text-primary',
-          ]}
-        >
-          {link.label}
-        </a>
-      ))}
-      <a href="https://github.com/mmmaxwwwell" class="text-text-muted hover:text-text-primary transition-colors" aria-label="GitHub">
+      {navLinks.map(link => {
+        const isActive = currentPath === link.href || (link.href !== '/' && currentPath.startsWith(link.href));
+        return (
+          <a
+            href={link.href}
+            class:list={['nav-link', isActive && 'nav-link-active']}
+          >
+            {link.label}
+          </a>
+        );
+      })}
+      <a href="https://github.com/mmmaxwwwell" class="nav-github" aria-label="GitHub">
         <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
           <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
         </svg>
@@ -40,7 +38,7 @@ const currentPath = Astro.url.pathname;
 
     <!-- Mobile menu button + theme toggle -->
     <div class="flex sm:hidden items-center gap-2">
-      <a href="https://github.com/mmmaxwwwell" class="text-text-muted hover:text-text-primary transition-colors" aria-label="GitHub">
+      <a href="https://github.com/mmmaxwwwell" class="nav-github" aria-label="GitHub">
         <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
           <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
         </svg>
@@ -63,22 +61,75 @@ const currentPath = Astro.url.pathname;
   <!-- Mobile nav drawer -->
   <div id="mobile-menu" class="hidden sm:hidden border-t border-border bg-bg-surface/95 backdrop-blur-sm">
     <div class="px-4 py-3 flex flex-col gap-2">
-      {navLinks.map(link => (
-        <a
-          href={link.href}
-          class:list={[
-            'text-sm font-medium py-2 px-3 rounded-lg transition-colors',
-            currentPath === link.href || (link.href !== '/' && currentPath.startsWith(link.href))
-              ? 'text-[var(--accent-pink)] bg-bg-surface'
-              : 'text-text-muted hover:text-text-primary hover:bg-bg-surface',
-          ]}
-        >
-          {link.label}
-        </a>
-      ))}
+      {navLinks.map(link => {
+        const isActive = currentPath === link.href || (link.href !== '/' && currentPath.startsWith(link.href));
+        return (
+          <a
+            href={link.href}
+            class:list={[
+              'nav-link-mobile',
+              isActive && 'nav-link-mobile-active',
+            ]}
+          >
+            {link.label}
+          </a>
+        );
+      })}
     </div>
   </div>
 </header>
+
+<style>
+  .nav-link {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--accent-cyan);
+    text-underline-offset: 4px;
+    transition: color 0.15s ease, text-decoration-color 0.15s ease;
+  }
+  .nav-link:hover {
+    color: var(--accent-cyan);
+    text-decoration: underline;
+    text-decoration-color: var(--accent-cyan);
+  }
+  .nav-link-active {
+    color: var(--accent-pink);
+    text-decoration: underline;
+    text-decoration-color: var(--accent-pink);
+  }
+  .nav-link-active:hover {
+    color: var(--accent-pink);
+    text-decoration-color: var(--accent-pink);
+  }
+
+  .nav-github {
+    color: var(--accent-cyan);
+    transition: opacity 0.15s ease;
+  }
+  .nav-github:hover {
+    opacity: 0.7;
+  }
+
+  .nav-link-mobile {
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    color: var(--accent-cyan);
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+  .nav-link-mobile:hover {
+    color: var(--accent-cyan);
+    background-color: var(--bg-surface);
+  }
+  .nav-link-mobile-active {
+    color: var(--accent-pink);
+    background-color: var(--bg-surface);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    text-decoration-color: var(--accent-pink);
+  }
+</style>
 
 <script is:inline>
   (function () {
