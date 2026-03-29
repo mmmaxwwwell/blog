@@ -10,7 +10,7 @@ const categories = [...new Set(posts.map((post) => post.data.category))].sort();
 ---
 <BaseLayout title="Blog | mmmaxwwwell's blog" description="All posts about electronics, 3D printing, OpenSCAD, and software development.">
   <main class="flex-1 max-w-3xl mx-auto px-4 py-6 sm:py-12 w-full">
-    <h1 class="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6">Blog</h1>
+    <h1 class="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6 text-[var(--accent-pink)]">Blog</h1>
 
     <!-- Category filter links -->
     {categories.length > 0 && (
