@@ -1,6 +1,6 @@
 ---
 title: "From Word Salad to 76 Tasks: Building nix-key with Spec-Kit"
-description: "I dumped a rambling, typo-filled paragraph about turning a phone into a YubiKey into spec-kit's interview process. Three hours later: 101 functional requirements, 76 implementation tasks across 14 phases, and a parallel runner about to build the whole thing while I sleep."
+description: "I dumped a rambling, typo-filled paragraph about turning a phone into a YubiKey into spec-kit's interview process. Three hours later: 101 functional requirements, 76 implementation tasks across 14 phases, and a parallel runner that immediately started breaking while I watched."
 date: 2026-03-28
 category: "software-dev"
 tags: ["spec-kit", "nix", "ai-agents", "specification-driven-development", "android"]
@@ -15,7 +15,7 @@ I typed a rambling, typo-filled paragraph about turning my phone into a YubiKey 
 - **[The analysis loop](#the-analysis-loop)**: Three passes of spec-kit's analysis found 15 issues in the initial spec, from misleading requirements to missing wire protocols to inadequate E2E test harnesses.
 - **[The plan](#the-plan)**: 9 architecture decisions, 14 implementation phases with a dependency graph, 76 tasks with full traceability to the 101 functional requirements.
 - **[Why nix-key is the benchmark app](#why-nix-key-is-the-benchmark-app)**: Fully Nix-reproducible, spans two devices with different runtimes, and the spec is thorough enough to serve as ground truth for evaluating changes to the spec-kit system.
-- **[Kicking it off](#kicking-it-off)**: Starting the parallel runner at 9:30 PM, going to bed, evaluating the output cold in the morning.
+- **[Kicking it off](#kicking-it-off)**: Started the parallel runner, immediately hit a broken dependency parser that scheduled tasks before their prerequisites existed. Fixed it, runner is working, Part 2 covers the results.
 
 ---
 
@@ -195,7 +195,7 @@ And once the project is implemented, I have a second benchmark: does the spec re
 
 ## Kicking it off
 
-It's 9:30 PM on March 28th. The whole process from word salad to implementation-ready took about three hours: 20 minutes for the interview, another hour for the three analysis passes, and an hour for the architecture review, plan, and task generation. I ran `nix flake init` to bootstrap the repo, and now I'm about to start the parallel runner and go to bed.
+The whole process from word salad to implementation-ready took about three hours: 20 minutes for the interview, another hour for the three analysis passes, and an hour for the architecture review, plan, and task generation. I ran `nix flake init` to bootstrap the repo and started the parallel runner.
 
 ```bash
 python3 ~/git/agent-framework/.claude/skills/spec-kit/parallel_runner.py specs/nix-key
@@ -203,9 +203,13 @@ python3 ~/git/agent-framework/.claude/skills/spec-kit/parallel_runner.py specs/n
 
 ![Three spec-kit agents running in parallel inside the terminal, each working on a different implementation task from Phase 1](/images/nix-key-spec-kit-benchmark/parallel-runner.png)
 
-76 tasks across 14 phases. Two parallel agent workstreams. Fix-validate loops at every phase boundary. Tomorrow morning I'm going to open the repo cold, with no debugging, no hand-holding, no "let me just fix this one thing." Whatever state the project is in when I wake up is the result. Tests pass or they don't. The build works or it doesn't. That's the benchmark.
+76 tasks across 14 phases. Two parallel agent workstreams. Fix-validate loops at every phase boundary.
 
 The interview changes I described in the last post, focusing on user workflows as a source for integration test scenarios, are already reflected in this spec. The user stories describe concrete user actions ("a developer runs `git commit`", "a user runs `nix-key pair`"), and the test plans exercise the actual runtime paths. If the agents implement to the spec, the class of bugs that killed the last 5% of claude-voice (import failures outside devshell, wrong package names in error messages, model format incompatibilities) should be caught by the test suite before I ever see them.
 
-That's the theory. Part 2 will cover what I found in the morning.
+The runner broke almost immediately. Not the agents, not the spec, not the nix-key implementation. The runner script itself. Two tasks (T021 and T025) were stuck in infinite respawn loops, failing and restarting over and over. T021 had 9 attempts, T025 had 10. The agents were dying with `UND_ERR_SOCKET` and `ECONNRESET` connection errors, and I spent a while chasing the wrong thing before finding the actual root cause.
+
+The dependency parser couldn't handle the format in `tasks.md`. Three specific failures: continuation lines where the source phase was on the previous line, bare task IDs without `Phase N` labels that the regex didn't match, and `###` subsection arrows being parsed as inter-phase dependencies. The result: Phases 5 and 6 had no dependencies listed even though they depended on Phases 3 and 4. T021 and T025 were scheduled immediately and ran before their prerequisite code existed. The agents tried to compile code importing packages from phases that hadn't been implemented yet, the builds hung, and the idle connections got dropped at ~200 seconds.
+
+The connection errors were a symptom. The parser was the bug. Once I fixed it (continuation line carry-forward, task-ID-to-phase resolution, stopping at `###` headings), phases started executing in the right order and agents stopped dying in loops. The parallel runner is a placeholder I'm planning to replace with a proper workflow engine, and this is exactly why. Parsing markdown with regex, hand-rolling backoff in a main loop, managing state across process boundaries with files on disk: these are all solved problems. But for tonight, it works. Part 2 covers what I found in the morning.
 
