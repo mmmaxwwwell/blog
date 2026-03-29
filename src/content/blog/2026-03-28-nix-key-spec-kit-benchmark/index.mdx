@@ -201,6 +201,8 @@ It's 9:30 PM on March 28th. The whole process from word salad to implementation-
 python3 ~/git/agent-framework/.claude/skills/spec-kit/parallel_runner.py specs/nix-key
 ```
 
+![Three spec-kit agents running in parallel inside the terminal, each working on a different implementation task from Phase 1](/images/nix-key-spec-kit-benchmark/parallel-runner.png)
+
 76 tasks across 14 phases. Two parallel agent workstreams. Fix-validate loops at every phase boundary. Tomorrow morning I'm going to open the repo cold, with no debugging, no hand-holding, no "let me just fix this one thing." Whatever state the project is in when I wake up is the result. Tests pass or they don't. The build works or it doesn't. That's the benchmark.
 
 The interview changes I described in the last post, focusing on user workflows as a source for integration test scenarios, are already reflected in this spec. The user stories describe concrete user actions ("a developer runs `git commit`", "a user runs `nix-key pair`"), and the test plans exercise the actual runtime paths. If the agents implement to the spec, the class of bugs that killed the last 5% of claude-voice (import failures outside devshell, wrong package names in error messages, model format incompatibilities) should be caught by the test suite before I ever see them.
