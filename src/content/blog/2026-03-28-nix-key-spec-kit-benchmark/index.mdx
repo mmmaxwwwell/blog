@@ -1,0 +1,209 @@
+---
+title: "From Word Salad to 76 Tasks: Building nix-key with Spec-Kit"
+description: "I dumped a rambling, typo-filled paragraph about turning a phone into a YubiKey into spec-kit's interview process. Three hours later: 101 functional requirements, 76 implementation tasks across 14 phases, and a parallel runner about to build the whole thing while I sleep."
+date: 2026-03-28
+category: "software-dev"
+tags: ["spec-kit", "nix", "ai-agents", "specification-driven-development", "android"]
+draft: false
+---
+
+I typed a rambling, typo-filled paragraph about turning my phone into a YubiKey and let spec-kit's interview process turn it into a full specification. Three hours later I have 101 functional requirements, 76 implementation tasks, and a parallel runner about to build the whole thing while I sleep. Everything discussed in this post is in the [first commit of nix-key](https://github.com/mmmaxwwwell/nix-key/tree/461f1054494fbce3091e925c65f13ba75f6401a4).
+
+## TLDR
+
+- **[The interview](#the-interview)**: A 12-question interview took my rambling prompt and turned it into structured decisions, catching contradictions I didn't know I had and surfacing features I hadn't thought about.
+- **[The analysis loop](#the-analysis-loop)**: Three passes of spec-kit's analysis found 15 issues in the initial spec, from misleading requirements to missing wire protocols to inadequate E2E test harnesses.
+- **[The plan](#the-plan)**: 9 architecture decisions, 14 implementation phases with a dependency graph, 76 tasks with full traceability to the 101 functional requirements.
+- **[Why nix-key is the benchmark app](#why-nix-key-is-the-benchmark-app)**: Fully Nix-reproducible, spans two devices with different runtimes, and the spec is thorough enough to serve as ground truth for evaluating changes to the spec-kit system.
+- **[Kicking it off](#kicking-it-off)**: Starting the parallel runner at 9:30 PM, going to bed, evaluating the output cold in the morning.
+
+---
+
+This is going to be embarrassing, but it's honest. Here's how I start projects. I open Claude Code and type whatever's in my head:
+
+> i want to use spec kit to create an android app with full featured ssh key managment including createing and exporting. multiple ssh keys will be supported. the android app and computer should connect to the tailscale network, and exchange ssl key and tailscale ip by scanning a qr code on a utility on the computer. write full integrationt tests for everything including nix tests for the module. the android app should act just like a yubikey, when a signing request comes in something pops up on the screen asking for confirmation, and optioally biometrics or a password, and the user can pick another key. make it configurable for each key. there should be an option in the settings to disable the server requesting all the keys. when the app isn't open, it isn't connected to the tailnet. store everything best practies in secure locations and encrypted using android and ssh private key encryption. the computer side of it is nix exclusive, make it super easy to import if your using flakes or the old way with channels. i want a config.services.nix-key that has a whole config object with everything you need. make sure all the settings are written to a file so that we could populate them easily for itegration testing and debugging possibly. everything tested including nix service tests. best practices unix-wide using systemd-user and storing everything in a good unix convention. enforce mutual tls with self-signed ssl certificates hardcoded into the app using key pinning and transfered to the phone over qr code when onboarding a device with the command line uility. full featured command line utility for managing authorized phones. when onboarding a phone, start with a cli utility that displays a qr code with the info needed for the phone to reach the server, then when the server gets the connection, you confirm you want to authorize on the terminal. the phone should also ask do you want to connect before connecting.
+
+Typos, run-on sentences, contradictions, zero structure. "integrationt tests." "your" instead of "you're." "ssl" when I mean TLS. I know it looks bad. But this is how my brain works when I'm excited about a project. The idea is clear in my head and I just dump it out as fast as I can type, and the result is messy. That's the point of the spec-kit skill: the input doesn't have to be clean. The interview process is designed to take exactly this kind of word salad and turn it into something an agent can build from.
+
+The project is nix-key: an Android app that acts like a YubiKey for SSH. Private keys live in Android Keystore. Signing requests get forwarded from a NixOS daemon to the phone over Tailscale with mutual TLS. The phone pops up a confirmation prompt, optionally with biometrics, and the signature goes back to the SSH client. This is also going to be my first benchmark app for the [spec-kit skill](../2026-03-25-spec-kit-sdd-for-ai-agents/), which I'll get into at the end.
+
+## The interview
+
+The skill picked the "public" preset (multi-platform, open source, full test infrastructure) and started researching. It found yubikey-agent, ssh-agent-forward, and other similar projects, then came back with concrete proposals instead of open-ended questions.
+
+The interview was 12 questions. Most of them followed the same pattern: "here's what I'd recommend based on the research, here are the alternatives, does this work?" A few required real decisions from me. Most of my answers were short. "yes good." "1. ok with simple 2 multiple phones 3 yes." "add test looks good." The skill did the heavy lifting of structuring decisions; I just confirmed or corrected. But the most valuable moments were when the interview caught things I'd gotten wrong in the original prompt.
+
+### Catching wrong assumptions about connection direction
+
+My prompt said "exchange ssl key and tailscale ip by scanning a qr code on a utility on the computer" and "when the server gets the connection, you confirm you want to authorize on the terminal." I was thinking of a single connection model where the phone always connects to the computer. The interview initially proposed the same thing, with the host as a TLS server that phones connect to for signing.
+
+I pushed back:
+
+> we don't initiate the connection with the computer, the computer does for each signing request
+
+This created a contradiction with my own prompt's description of the pairing flow. The interview caught it and asked me to clarify. I said:
+
+> no, the pairing should go through a connection from the phone to the server. the server can spin up a http server with nginx for a second bound to the tailscale interface and diaplsy a qr code. when in normal opration, the phone listens on the userspace tailscale interface for the server to reach out. ask me that again with the updated inof
+
+More typos. But the skill parsed through the garbled text, identified that I was describing two different connection directions, and re-asked the question with the corrected model. We landed on:
+
+- **Pairing**: Phone connects to the host (host spins up a temporary HTTPS endpoint on the Tailscale interface, displays a QR code)
+- **Normal operation**: Host connects to the phone (phone runs a TLS server on its userspace Tailscale interface, host initiates mTLS connections for each signing request)
+
+This is one of those decisions that would have caused real problems if it got to implementation unresolved. An agent implementing the signing flow with the phone connecting to the host would have built a fundamentally different architecture. The mTLS certificates, the Tailscale binding, the connection lifecycle, the timeout behavior, all of it depends on who initiates the connection.
+
+### Surfacing the userspace Tailscale constraint
+
+My prompt mentioned "when the app isn't open, it isn't connected to the tailnet," but it didn't spell out what that means architecturally. The interview asked about it and I clarified that the phone uses a userspace Tailscale implementation, so the phone only has a Tailscale IP while the app is foregrounded.
+
+This has cascading implications the interview captured:
+
+- No persistent connection between host and phone. The host connects on demand for each signing request.
+- If the app is backgrounded, the phone is unreachable. The host daemon returns `SSH_AGENT_FAILURE` after a timeout with no retry. SSH clients handle retries themselves.
+- Lock/unlock commands on the SSH agent are unnecessary. The app's foreground state serves as the lock. I said as much: "lock/unlock shouldn't be needed. if the phone app isn't active then it can't be reached over tailscale."
+- The phone's TLS server binds only to the Tailscale interface, which only exists while the app is active.
+
+None of this was in my original prompt. The interview extracted it by asking about the SSH agent protocol scope, and my answer about lock/unlock led naturally to documenting the Tailscale lifecycle as a security boundary.
+
+### The "rotate your shit" moment
+
+The interview asked about backup and recovery for SSH keys. Since the keys are generated inside Android Keystore and marked non-extractable, losing the phone means losing the keys. The interview presented this explicitly and asked if I wanted a software-backed exportable key option as an alternative.
+
+My answer: "yubikey model. rotate your shit."
+
+That became a rejected alternative in the interview notes with the rationale documented. When implementing agents encounter a blocker related to key management, they'll see that software-backed exportable keys were explicitly rejected, and why. No agent is going to add a key export feature to "help" with backup because the decision is recorded with its reasoning.
+
+### OTEL as a conversation, not a requirement
+
+My original prompt said nothing about observability. The skill's public preset includes structured logging but not distributed tracing by default. During the constitution phase, I asked whether the public preset includes tracing. It doesn't, but I said I wanted distributed tracing across the mTLS boundary between the host and the Android app.
+
+Then during the interview, when the tracing question came up, I was honest: "idk anything about otel, would that give good traceability?" The skill explained what OpenTelemetry would give me, showed a sample trace visualization of a signing request flowing through both systems, and proposed the span hierarchy:
+
+```
+[host] ssh-sign-request          ████████████████████████████  850ms
+  [host] device-lookup           ██                             5ms
+  [host] mtls-connect            ████████████                 400ms
+    [phone] handle-sign-request  ██████████                   350ms
+      [phone] show-prompt        ████████                     300ms
+      [phone] keystore-sign      █                             10ms
+  [host] return-signature        █                              5ms
+```
+
+I said yes and then asked if the OTEL config could be transferred to the phone during the pairing flow. That became a whole additional feature: the QR code includes the OTEL collector endpoint if it's configured on the host, and the phone prompts separately to accept tracing ("Enable tracing? Traces will be sent to `100.x.x.x:4317`"). The phone can accept pairing but deny tracing, or accept both.
+
+This is 9 functional requirements (FR-080 through FR-088) that emerged entirely from a conversation during the interview. They weren't in my original prompt at all. And they're properly scoped: tracing is disabled by default, adds no overhead when off, and the phone has independent control over whether it participates.
+
+## The analysis loop
+
+The interview produced an initial spec, but spec-kit has an analysis phase that checks for ambiguities, inconsistencies, and gaps. I ran it three times.
+
+The first pass found 15 issues. Some were real problems:
+
+- **FR-015 said the host daemon "MUST bind to the Tailscale interface"**, but the daemon listens on a Unix socket for SSH clients (FR-002). The daemon doesn't bind to Tailscale; it initiates outgoing mTLS connections via Tailscale. The wording was misleading.
+- **FR-052 described a scenario where "no specific key is requested"**, but the SSH agent protocol always includes a key blob in sign requests. The requirement was unreachable.
+- **The pairing QR code lacked detail** about what exactly gets exchanged. The spec said "TLS certificate fingerprint" but the actual design needed the full cert in the QR code so the phone could pin it immediately (fingerprint-only would require trust-on-first-use, which is weaker).
+- **No wire protocol was specified** for the host-to-phone communication. The spec said mTLS but didn't say what runs on top of it. I chose gRPC with protobuf because it gives automatic OTEL trace propagation via gRPC metadata, type-safe message contracts, and excellent Go + Kotlin support.
+
+I told the skill: "how do we resolve a2? c1 encrypt EVERYTINg sensitive. c3 use json. u1 do research but suggested fix is ok. u2 think it through. fix everything else." Again, barely-structured responses. The skill applied all 15 fixes, then I ran analysis again.
+
+The second pass came back clean on the original 15 issues but I asked it to look deeper, specifically at whether the test harnesses were adequate for the E2E integration tests in the later phases. It found gaps: the Android emulator E2E was a single monolithic task with no reusable test infrastructure for emulator management, ADB automation, UI Automator helpers, or QR code bypass in emulators (you can't inject camera input). It also caught that CI workflows had no structured failure output for fix-validate agents to diagnose failures.
+
+I told it to fix those gaps and expand the test harness tasks. Phase 13 went from 1 task to 5 tasks. Phase 14 got a CI failure summary artifact. The spec-kit skill itself got updated with an E2E harness checklist so this gap is addressed in future projects.
+
+The third pass came back clean: 100% FR coverage, 100% edge case coverage, 100% success criteria coverage, zero HIGH or MEDIUM issues.
+
+Running analyze until it has no findings is the whole point. Each pass catches things the previous one missed, and the fixes from earlier passes sometimes introduce new inconsistencies that the next pass catches. Three iterations to get to clean isn't unusual.
+
+## The plan
+
+After the spec passed analysis, the skill moved to architecture decisions and planning. This is where the project structure, technology choices, and phase ordering get locked in.
+
+The architecture review was 9 decisions. Some were straightforward (single Go binary with subcommands for the host, Jetpack Compose for the Android app). A few were more interesting:
+
+**gRPC between host and phone** rather than raw JSON over TLS. The rationale is automatic OTEL traceparent propagation via gRPC metadata interceptors, type-safe protobuf contracts, and strong Go + Kotlin codegen. The 2-3MB APK overhead from gRPC is acceptable.
+
+**Age encryption for host-side secrets.** I said "encrypt EVERYTHING sensitive" during the interview, so mTLS private keys get encrypted with `filippo.io/age` at rest. The daemon decrypts into memory at startup. The age identity file lives at `~/.local/state/nix-key/age-identity.txt` with 0600 permissions. File permissions are defense-in-depth, not the primary protection.
+
+**Headscale for integration tests.** During the architecture review, I realized the E2E tests need a real Tailscale network but can't depend on an external Tailscale account. I said "yeah add it to the spec and re-evaluate. we'll use headscale for the integration tests as we can spin it up easily." Headscale is a self-hosted Tailscale control server. The NixOS VM tests now spin up headscale, create pre-auth keys, and have both the host and a phone simulator join the same Tailnet. Fully self-contained, no external accounts.
+
+**A phone simulator for protocol testing.** The plan creates `test/phonesim/`, a Go binary that uses the same `pkg/phoneserver` library as the real Android app but with in-memory keys and auto-approve confirmation. It connects to headscale via `tsnet` (Go's Tailscale library). This means the E2E tests for signing, pairing, timeouts, and denial all run without an Android emulator. The emulator-based tests come later as a separate confidence layer.
+
+**Android Keystore and Ed25519.** The architecture review uncovered that Android Keystore doesn't natively support Ed25519, only ECDSA and RSA. Ed25519 keys get generated via BouncyCastle and wrapped with a Keystore-backed AES encryption key. ECDSA-P256 gets native hardware backing (TEE/StrongBox). Ed25519 is still the default because it's the modern standard for SSH.
+
+The plan produced a 14-phase implementation with a dependency graph:
+
+```
+Phase 1 (Test Infra + Flake) → Phase 2 (Foundation) → Phase 3 (Protobuf)
+                                                     → Phase 4 (mTLS + Age)
+                                                     → Phase 5 (SSH Agent)
+                                                     → Phase 6 (Pairing)
+Phase 1 → Phase 7 (Android Core) → Phase 8 (Android gRPC + Tailscale)
+Phase 5 + 6 → Phase 9 (NixOS Module)
+Phase 8 + 9 → Phase 10 (E2E with Headscale)
+Phase 10 → Phase 11 (OTEL Tracing)
+Phase 10 → Phase 12 (CLI Polish)
+Phase 12 → Phase 13 (Android Emulator E2E)
+Phase 13 → Phase 14 (CI/CD + Release)
+```
+
+The host work (Phases 3-6) and Android work (Phases 7-8) run in parallel after the foundation is laid. They sync at Phase 10 where E2E tests need both sides working. The plan explicitly identifies two parallel agent workstreams:
+
+```
+Agent A (Host):    Phase 1→2→3→4→5→6→9→10→11→12→14
+Agent B (Android): Phase 1(wait)→7→8→(wait for 9)→10→13
+```
+
+Task generation produced 76 tasks across those 14 phases. Each task has traceability back to specific functional requirements and test IDs. The tasks are granular enough that agents can work on them independently: T019 implements the SSH agent protocol handler, T020 implements the device registry, T021 wires them together, T022 writes the integration test. Each task can be validated in isolation before the phase validation runs the full suite.
+
+### What the interview and analysis added that wasn't in the prompt
+
+Comparing the original word salad to the final spec with 101 functional requirements:
+
+- **Connection direction split** (pairing vs. normal operation) that resolved a contradiction in my own prompt
+- **Userspace Tailscale lifecycle** as a security boundary, eliminating lock/unlock and defining reachability
+- **gRPC wire protocol** with protobuf contracts and automatic OTEL propagation
+- **The entire OTEL tracing system** (9 functional requirements), including the pairing-time config transfer
+- **Age encryption** for all host-side secrets at rest
+- **Headscale-based E2E tests** that spin up a real Tailnet inside NixOS VMs
+- **Phone simulator** using the same library as the real app, for protocol testing without an emulator
+- **Dual control for key listing** where both the host and phone can independently deny it
+- **Declarative device definitions** in the NixOS module with optional `clientCert`/`clientKey` paths alongside runtime-paired devices
+- **Config file as testing interface**, written to `~/.config/nix-key/config.json` so integration tests can populate it without evaluating Nix
+- **Error hierarchy and sanitization**: typed errors on the host (`ConnectionError`, `TimeoutError`, `CertError`, etc.), with SSH client-facing errors sanitized to just `SSH_AGENT_FAILURE` because the SSH protocol doesn't support rich error messages
+- **IP change handling**: cert fingerprint is the device identity, not the Tailscale IP, so IP changes are handled transparently on next successful connection
+- **Android Keystore Ed25519 workaround**: BouncyCastle generation with Keystore-backed AES wrapping, since Keystore doesn't support Ed25519 natively
+- **Certificate expiry tracking** with warnings in `nix-key status` when certs are within 30 days of expiring
+- **E2E test harness decomposition**: emulator Nix infrastructure, deep link QR bypass, UI Automator helper library, and CI failure summary artifacts
+
+The interview also documented 12 rejected alternatives with reasoning: RSA keys (legacy, slower), persistent Tailscale connection (battery, security), Diffie-Hellman for pairing (unnecessary given physical proximity), Docker (Nix-first project), system-level service (SSH agent is per-user), JSON over raw TLS (manual OTEL propagation), fingerprint-only QR (TOFU vulnerability), plaintext certs on disk (user mandated encryption). Each rejected alternative is a constraint for implementing agents.
+
+## Why nix-key is the benchmark app
+
+In my [last post's PS](../2026-03-25-spec-kit-sdd-for-ai-agents/#ps-2026-03-27-the-5-that-agents-got-wrong), I talked about the 5% of the claude-voice project that agents got wrong: runtime environment issues that tests didn't catch because tests ran inside `nix develop` where everything was on PATH. I said the next project needed to be a benchmark app, and nix-key is it.
+
+**The entire dependency chain is Nix-reproducible.** The host daemon is Go (trivial Nix build, single static binary). The NixOS module tests use NixOS's VM test framework, which is already Nix-native. The Android side can use the Android SDK packaged in nixpkgs, and the Android emulator runs inside NixOS VM tests. Every test, from unit tests to end-to-end tests across two simulated devices, can run inside `nix flake check` with no external dependencies.
+
+**It spans two devices with different runtimes and involves remote CI/CD debugging.** The host is a Go binary running as a systemd user service. The phone is a Kotlin app running on Android with hardware-backed Keystore. The mTLS connection between them crosses a network boundary (Tailscale). The CI pipeline runs NixOS VM tests, Android emulator E2E tests with nested virtualization, and security scanning across both codebases. Agents need to diagnose failures from structured CI artifacts without local reproduction. This is the kind of multi-system integration that's hardest for agents to get right, and the kind of project where the "last 5%" is most likely to bite.
+
+**The failure modes require real runtime testing.** Phone unreachable, mTLS handshake failure, Tailscale interface missing, concurrent signing requests, IP address changes. These aren't things you can verify with unit tests. You need actual processes talking to each other over actual TLS connections. If the agents skip runtime testing (like they did with claude-voice), these failures will show up immediately.
+
+**The spec is thorough enough to serve as ground truth.** With 101 functional requirements, 12 edge cases, and test plans that reference specific FRs, I can verify that implementing agents are building what the spec says. If I change the spec-kit skill and re-run the interview with the same inputs, I can diff the resulting specs and check whether the new version catches gaps that the old one missed.
+
+The benchmark works like this: I have the spec, the interview transcript, and the constitution. When I modify the spec-kit skill (better interview questions, different preset defaults, improved analysis passes), I can re-run the same word salad prompt, replay the same interview answers, and compare the output. Did the new version catch the connection direction contradiction earlier? Did it surface the OTEL feature without me prompting it? Did the test plan cover the runtime failure modes that claude-voice missed?
+
+And once the project is implemented, I have a second benchmark: does the spec reliably produce working software? I can change the orchestration (the parallel runner, the fix-validate loop, the auto-unblocking system) and re-run implementation against the same spec. If tests pass, the change didn't break anything. If they fail, I know exactly where the regression is because the test plan traces back to specific functional requirements.
+
+## Kicking it off
+
+It's 9:30 PM on March 28th. The whole process from word salad to implementation-ready took about three hours: 20 minutes for the interview, another hour for the three analysis passes, and an hour for the architecture review, plan, and task generation. I ran `nix flake init` to bootstrap the repo, and now I'm about to start the parallel runner and go to bed.
+
+```bash
+python3 ~/git/agent-framework/.claude/skills/spec-kit/parallel_runner.py specs/nix-key
+```
+
+76 tasks across 14 phases. Two parallel agent workstreams. Fix-validate loops at every phase boundary. Tomorrow morning I'm going to open the repo cold, with no debugging, no hand-holding, no "let me just fix this one thing." Whatever state the project is in when I wake up is the result. Tests pass or they don't. The build works or it doesn't. That's the benchmark.
+
+The interview changes I described in the last post, focusing on user workflows as a source for integration test scenarios, are already reflected in this spec. The user stories describe concrete user actions ("a developer runs `git commit`", "a user runs `nix-key pair`"), and the test plans exercise the actual runtime paths. If the agents implement to the spec, the class of bugs that killed the last 5% of claude-voice (import failures outside devshell, wrong package names in error messages, model format incompatibilities) should be caught by the test suite before I ever see them.
+
+That's the theory. Part 2 will cover what I found in the morning.
+

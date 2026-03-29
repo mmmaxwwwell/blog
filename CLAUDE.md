@@ -56,6 +56,8 @@ Use one of these (add new ones if a project genuinely doesn't fit):
 - **Explain the "why" behind workarounds.** "Agents skip validation" is less interesting than "when you have parallel agents, no single agent can know it's the last one in a phase, so validation falls through the cracks." The structural reason is the insight.
 
 ### Structure
+- **Subject statement**: Every post starts with a 1-2 sentence subject statement above the TLDR. This is the thesis of the post: what happened and what the outcome was. No heading, just plain text at the top of the content.
+- **TLDR section**: Every post has a `## TLDR` section immediately after the subject statement. One bullet per major section, each with a linked section name and a single-sentence summary. Readers should be able to get the gist of the entire post or click through to any section. Add a `---` horizontal rule after the TLDR before the main content begins.
 - **Lead with the hook**: what did you build, what problem does it solve, why should the reader care? Don't start with backstory
 - **Show, don't just tell**: include code snippets, photos, screenshots, diagrams, STL renders. A post about a PCB should show the PCB
 - **Use headings** to break up sections. Reader should be able to skim the headings and get the gist
