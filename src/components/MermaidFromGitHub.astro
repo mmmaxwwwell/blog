@@ -1,0 +1,359 @@
+---
+interface Props {
+  repo: string;
+  path: string;
+  commit: string;
+  /** Section heading prefixes to extract mermaid blocks from, in order. Each becomes a tab. */
+  sections: string[];
+}
+
+const { repo, path, commit, sections } = Astro.props;
+
+const url = `https://raw.githubusercontent.com/${repo}/${commit}/${path}`;
+const response = await fetch(url);
+
+if (!response.ok) {
+  throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+}
+
+const markdown = await response.text();
+
+// Split into sections by ## headings
+const sectionRegex = /^## (.+)$/gm;
+const sectionStarts: { title: string; index: number }[] = [];
+let match;
+while ((match = sectionRegex.exec(markdown)) !== null) {
+  sectionStarts.push({ title: match[1], index: match.index });
+}
+
+// Extract mermaid blocks from matching sections
+const tabs: { label: string; diagram: string }[] = [];
+
+for (const prefix of sections) {
+  const sectionIdx = sectionStarts.findIndex(s => s.title.startsWith(prefix));
+  if (sectionIdx === -1) continue;
+
+  const start = sectionStarts[sectionIdx].index;
+  const end = sectionIdx + 1 < sectionStarts.length
+    ? sectionStarts[sectionIdx + 1].index
+    : markdown.length;
+
+  const sectionText = markdown.slice(start, end);
+
+  // Extract first mermaid code block from this section
+  const mermaidMatch = sectionText.match(/```mermaid\n([\s\S]*?)```/);
+  if (mermaidMatch) {
+    // Use a short label derived from the section title
+    const fullTitle = sectionStarts[sectionIdx].title;
+    // Strip the "N. " prefix and "State Machine" suffix for tab labels
+    const label = fullTitle
+      .replace(/^\d+\.\s*/, '')
+      .replace(/\s*State Machine\s*$/, '')
+      .trim();
+
+    tabs.push({ label, diagram: mermaidMatch[1].trim() });
+  }
+}
+
+const sourceUrl = `https://github.com/${repo}/blob/${commit}/${path}`;
+---
+
+<div class="mermaid-tabs" data-tabs={JSON.stringify(tabs)}>
+  <div class="tab-bar" role="tablist">
+    {tabs.map((tab, i) => (
+      <button
+        role="tab"
+        aria-selected={i === 0 ? "true" : "false"}
+        class:list={["tab-btn", i === 0 && "active"]}
+        data-index={i}
+      >
+        {tab.label}
+      </button>
+    ))}
+    <a href={sourceUrl} class="source-link" target="_blank" rel="noopener" title="View source">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+        <polyline points="15 3 21 3 21 9"/>
+        <line x1="10" y1="14" x2="21" y2="3"/>
+      </svg>
+    </a>
+    <button class="fullscreen-btn" aria-label="Toggle fullscreen" title="Fullscreen">
+      <svg class="fs-expand" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+      </svg>
+      <svg class="fs-collapse hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 14h6v6m10-10h-6V4m0 6 7-7M3 21l7-7"/>
+      </svg>
+    </button>
+  </div>
+  <div class="tab-panels">
+    {tabs.map((tab, i) => (
+      <div
+        role="tabpanel"
+        class:list={["tab-panel", i !== 0 && "hidden"]}
+        data-index={i}
+      >
+        <div class="mermaid-container" data-diagram={tab.diagram} />
+      </div>
+    ))}
+  </div>
+</div>
+
+<style>
+  .mermaid-tabs {
+    margin: 1.5rem 0;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
+  .tab-bar {
+    display: flex;
+    overflow-x: auto;
+    background-color: var(--bg-surface);
+    border-bottom: 1px solid var(--border-color);
+    gap: 0;
+  }
+
+  .tab-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .tab-btn:hover {
+    color: var(--accent-cyan);
+  }
+
+  .tab-btn.active {
+    color: var(--accent-pink);
+    border-bottom-color: var(--accent-pink);
+  }
+
+  .source-link {
+    margin-left: auto;
+    padding: 0.5rem 0.5rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    transition: color 0.15s ease;
+    text-decoration: none;
+  }
+
+  .source-link:hover {
+    color: var(--accent-cyan);
+  }
+
+  .fullscreen-btn {
+    padding: 0.5rem 0.75rem;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    transition: color 0.15s ease;
+  }
+
+  .fullscreen-btn:hover {
+    color: var(--accent-cyan);
+  }
+
+  .fullscreen-btn .hidden {
+    display: none;
+  }
+
+  /* Fullscreen mode */
+  .mermaid-tabs.fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background-color: var(--bg-base);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .mermaid-tabs.fullscreen .tab-bar {
+    flex-shrink: 0;
+  }
+
+  .mermaid-tabs.fullscreen .tab-panels {
+    flex: 1;
+    overflow: auto;
+  }
+
+  .mermaid-tabs.fullscreen .tab-panel {
+    min-height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mermaid-tabs.fullscreen .tab-panel.hidden {
+    display: none;
+  }
+
+  .mermaid-tabs.fullscreen .mermaid-container {
+    width: 100%;
+  }
+
+  .mermaid-tabs.fullscreen .mermaid-container :global(svg) {
+    max-height: calc(100vh - 50px);
+    max-width: 95vw;
+  }
+
+  .tab-panel {
+    padding: 1rem;
+    overflow-x: auto;
+  }
+
+  .tab-panel.hidden {
+    display: none;
+  }
+
+  .mermaid-container {
+    display: flex;
+    justify-content: center;
+  }
+
+  /* Mermaid SVG overrides for theme */
+  .mermaid-container :global(svg) {
+    max-width: 100%;
+    height: auto;
+  }
+</style>
+
+<script>
+  async function initMermaidTabs() {
+    const mermaid = await import("mermaid");
+
+    const isDark = !document.documentElement.classList.contains("light");
+
+    mermaid.default.initialize({
+      startOnLoad: false,
+      theme: "base",
+      themeVariables: isDark
+        ? {
+            primaryColor: "#1A1A2E",
+            primaryTextColor: "#E8E8F0",
+            primaryBorderColor: "#CF8FFF",
+            lineColor: "#CF8FFF",
+            secondaryColor: "#2A2A4E",
+            tertiaryColor: "#0D0221",
+            noteBkgColor: "#1A1A2E",
+            noteTextColor: "#E8E8F0",
+            noteBorderColor: "#CF8FFF",
+            textColor: "#E8E8F0",
+            mainBkg: "#1A1A2E",
+            nodeBorder: "#CF8FFF",
+            clusterBkg: "#0D0221",
+            clusterBorder: "#2A2A4E",
+            titleColor: "#FF2D95",
+            edgeLabelBackground: "#0D0221",
+            compositeBackground: "#0D0221",
+            compositeTitleBackground: "#1A1A2E",
+            compositeBorder: "#2A2A4E",
+          }
+        : {
+            primaryColor: "#EEEEF5",
+            primaryTextColor: "#1A1A2E",
+            primaryBorderColor: "#8B2FC8",
+            lineColor: "#8B2FC8",
+            secondaryColor: "#F8F8FF",
+            tertiaryColor: "#EEEEF5",
+            noteBkgColor: "#EEEEF5",
+            noteTextColor: "#1A1A2E",
+            noteBorderColor: "#8B2FC8",
+            textColor: "#1A1A2E",
+            mainBkg: "#EEEEF5",
+            nodeBorder: "#8B2FC8",
+            clusterBkg: "#F8F8FF",
+            clusterBorder: "#D0D0E0",
+            titleColor: "#D41C6E",
+            edgeLabelBackground: "#F8F8FF",
+            compositeBackground: "#F8F8FF",
+            compositeTitleBackground: "#EEEEF5",
+            compositeBorder: "#D0D0E0",
+          },
+    });
+
+    async function renderDiagram(container: HTMLElement) {
+      const diagram = container.dataset.diagram;
+      if (!diagram) return;
+      const id = "mermaid-" + Math.random().toString(36).slice(2, 9);
+      try {
+        const { svg } = await mermaid.default.render(id, diagram);
+        container.innerHTML = svg;
+        container.dataset.rendered = "true";
+      } catch (e) {
+        container.innerHTML = `<pre style="color: var(--accent-pink); font-size: 0.85rem;">${(e as Error).message}</pre>`;
+      }
+    }
+
+    for (const wrapper of document.querySelectorAll<HTMLElement>(".mermaid-tabs")) {
+      // Fullscreen toggle
+      const fsBtn = wrapper.querySelector<HTMLButtonElement>(".fullscreen-btn");
+      const fsExpand = fsBtn?.querySelector<SVGElement>(".fs-expand");
+      const fsCollapse = fsBtn?.querySelector<SVGElement>(".fs-collapse");
+
+      fsBtn?.addEventListener("click", () => {
+        const entering = !wrapper.classList.contains("fullscreen");
+        wrapper.classList.toggle("fullscreen");
+        fsExpand?.classList.toggle("hidden");
+        fsCollapse?.classList.toggle("hidden");
+        document.body.style.overflow = entering ? "hidden" : "";
+      });
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && wrapper.classList.contains("fullscreen")) {
+          wrapper.classList.remove("fullscreen");
+          fsExpand?.classList.remove("hidden");
+          fsCollapse?.classList.add("hidden");
+          document.body.style.overflow = "";
+        }
+      });
+
+      // Tab switching
+      const buttons = wrapper.querySelectorAll<HTMLButtonElement>(".tab-btn");
+      const panels = wrapper.querySelectorAll<HTMLElement>(".tab-panel");
+
+      buttons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const idx = btn.dataset.index!;
+          buttons.forEach((b) => {
+            b.classList.toggle("active", b.dataset.index === idx);
+            b.setAttribute("aria-selected", b.dataset.index === idx ? "true" : "false");
+          });
+          panels.forEach((p) => {
+            p.classList.toggle("hidden", p.dataset.index !== idx);
+          });
+
+          // Render if not yet rendered
+          const panel = wrapper.querySelector<HTMLElement>(`.tab-panel[data-index="${idx}"]`);
+          const container = panel?.querySelector<HTMLElement>(".mermaid-container");
+          if (container && !container.dataset.rendered) {
+            renderDiagram(container);
+          }
+        });
+      });
+
+      // Render all diagrams eagerly
+      const containers = wrapper.querySelectorAll<HTMLElement>(".mermaid-container");
+      for (const container of containers) {
+        await renderDiagram(container);
+      }
+    }
+  }
+
+  initMermaidTabs();
+</script>
