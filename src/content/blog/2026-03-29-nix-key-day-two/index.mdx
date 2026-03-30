@@ -1,0 +1,263 @@
+---
+title: "nix-key Day Two: Fixing the Runner, Planning the Replacement"
+description: "The parallel runner was supposed to build nix-key overnight. Instead I spent the day fixing bugs in the runner, documenting its state machine for a Temporal.io migration, and adding missing pieces to spec-kit while 75 of 77 tasks completed around me."
+date: 2026-03-29
+category: "software-dev"
+tags: ["spec-kit", "nix", "ai-agents", "temporal", "parallel-runner"]
+draft: false
+---
+import MermaidTabs from '../../../components/MermaidTabs.astro';
+
+I planned to sleep while the parallel runner built nix-key. That didn't happen. The runner kept dying overnight, and I spent today fixing it, documenting its state machine architecture for a Temporal.io migration, and adding things I noticed were missing from the spec-kit skill. As of right now, 75 of 77 tasks are complete, the CI debug loop is on attempt 33 working through NixOS VM test failures, and the runner is still going.
+
+## TLDR
+
+- **[The overnight failure](#the-overnight-failure)**: The runner couldn't sustain itself unattended. Rate limiting, silent exits, and context exhaustion all hit at different times with no recovery.
+- **[Fixing the runner](#fixing-the-runner)**: Circuit breakers for connection errors, rate limit backoff with reset-time parsing, flake.nix change detection with drain-and-reexec, categorized FAIL records for phase validation, and a CI debug loop with a local fix-validate loop (up to 20 iterations) before pushing.
+- **[Documenting the state machine](#documenting-the-state-machine)**: Four nested state machines in a 522-line document with full data models, scheduling rules, and retry logic. This is the Temporal migration blueprint.
+- **[CI debug loop in action](#ci-debug-loop-in-action)**: T075 has been pushing to GitHub, downloading failure logs, spawning diagnosis agents, running local fix-validate loops, and re-pushing for 33 attempts. It autonomously fixed headscale NixOS test boilerplate, Nix overlay shadowing bugs, a missing Jaeger package, CI workflow race conditions, and a cancellation loop.
+- **[Spec-kit additions](#spec-kit-additions)**: README generation guide, tiered security scanning framework, CI/CD reference with the agentic feedback loop, NixOS VM testing patterns, and learnings management with phase-based filtering and auto-pruning.
+- **[The cost problem](#the-cost-problem)**: I ran the numbers on what this would cost without a Max subscription. Hundreds of dollars for a single project. The model-mix benchmark isn't optional, it's urgent.
+- **[What's next](#whats-next)**: Let this run finish, evaluate the output, then generate a new feature from the updates to spec-kit.
+
+---
+
+## The overnight failure
+
+[Yesterday's post](../2026-03-28-nix-key-spec-kit-benchmark/) ended with me starting the parallel runner before bed. The dependency parser was fixed, phases were executing in the right order, and I expected to wake up to a mostly-built project.
+
+Instead I woke up to a dead runner and a pile of incomplete tasks. The failures came in waves:
+
+1. **Rate limiting with no recovery.** The Anthropic API rate-limits requests, and when you're running 3 agents in parallel making tool calls every few seconds, you hit those limits. The runner had no backoff strategy. An agent would get rate-limited, the runner would mark it as failed, and immediately respawn it into the same rate limit. Agents churned through attempts without making progress.
+
+2. **Silent exits.** The runner's main loop had conditions where it decided everything was done while tasks were still pending. The phase completion check wasn't accounting for tasks that were in a failed-but-retryable state, so the runner saw "no pending tasks, no running agents" and exited.
+
+3. **Context window exhaustion.** Some tasks, especially the Android ones, require reading a lot of context: the spec, the learnings file, existing code from earlier phases, reference docs. Agents would fill their context window and crash. The runner treated this the same as any other failure: immediate retry with the same prompt, leading to the same crash.
+
+Each of these was a different code path with a different fix. Rate limiting needed backoff with reset-time parsing. Silent exits needed better state tracking. Context exhaustion needed lighter retry prompts that skip re-reading context the agent already saw.
+
+## Fixing the runner
+
+Today's changes to `parallel_runner.py` were substantial: 1,661 lines added, 307 removed across the two commits. The runner went from a script that worked for small projects to something that can handle 14 phases unattended. Here's what changed.
+
+### Rate limit handling
+
+The runner now parses rate limit signals from agent stderr and the stream-json logs. When it detects a rate limit, it looks for the `resetsAt` timestamp in the API response. If it finds one, it waits until that time plus a 10-second buffer. If there's no timestamp, it defaults to a 60-second cooldown. The agent gets re-queued as pending rather than marked as failed, so it doesn't burn through retry attempts.
+
+### Circuit breaker
+
+Three consecutive connection errors (`ECONNRESET`, `ETIMEDOUT`, DNS failures) within a 10-minute window trip the circuit breaker. When tripped, the runner stops spawning anything for 5 minutes. This handles the scenario where the API is having a broader outage and retrying immediately would just burn rate limit quota.
+
+### Connection error recovery
+
+Not all connection errors mean the agent accomplished nothing. The runner now checks whether the agent wrote any code before dying. If it did, the retry prompt is lightweight: "You were working on task X. You already wrote files A, B, C. The connection dropped. Continue from where you left off." This avoids re-reading the entire spec and project context, which is what was causing context exhaustion on retries.
+
+### Flake.nix change detection
+
+Agents sometimes modify `flake.nix` (adding dependencies, changing the devShell). When that happens, the Nix environment needs to be refreshed. The runner now hashes `flake.nix` at startup and checks it every loop iteration. If the hash changes, it drains all running agents (waits for them to finish, no new spawns), then `os.execvp`s itself into a fresh `nix develop` shell. The runner restarts with the updated environment and picks up where it left off because task state is all on disk.
+
+### Phase validation pipeline
+
+After all tasks in a phase complete, the runner spawns a validation agent that runs a four-step sequence: build, test, lint, security scan. The ordering has short-circuit rules: build failure skips everything else (nothing is meaningful if it doesn't compile), test failure still runs lint (so the fix agent gets both error sets in one pass), and security only runs when all three previous steps pass (scanners are slow and would flag patterns in code that's about to be rewritten). If any step fails, the validation agent writes a categorized FAIL record with a per-step summary (Build: PASS/FAIL, Test: PASS/FAIL with counts, Lint: PASS/FAIL with error counts, Security: PASS/FAIL/SKIPPED) and per-step root cause analysis. Fix agents read the latest record first, check prior FAIL records to avoid repeating failed approaches, then run build/test/lint locally before marking complete.
+
+The validation cycle caps at 2 review rounds. After all four steps pass, a review agent checks the code. If it makes fixes on round 1, the phase gets re-validated. If round 2's review is clean, the phase is done. If it's not clean after 2 rounds, the phase completes anyway to avoid infinite loops.
+
+### Attempt tracking
+
+Every agent run now creates a structured JSONL record: which agent, which task, how long it ran, what files it read and wrote, what its last tool call was, and a progress stage (`startup`, `reading_context`, `exploring`, `wrote_code`). On retry, the runner passes the last N attempt summaries to the new agent so it knows what was already tried. This prevents agents from repeating the same failed approach.
+
+## Documenting the state machine
+
+The runner has grown complex enough that I can't keep it in my head anymore. Today I wrote a full state machine document with four Mermaid diagrams covering every state transition:
+
+1. **Runner state machine**: The top-level orchestration loop. Initialization, sandbox detection, BLOCKED.md handling (both human-input blocks and auto-grantable capability requests), flake change detection with drain-and-reexec, phase scheduling, circuit breaker, noop/stuck detection, and graceful Ctrl-C drain.
+
+2. **Task state machine**: Individual task lifecycle. Pending to running, then branching to complete, deferred, rate-limited, connection error, auth error, or failed. Each terminal state has its own recovery path back to pending (except auth errors, which trigger runner shutdown). Tasks can also start as blocked or skipped from prior runs.
+
+3. **Phase validation state machine**: The validate-review cycle. Tasks complete, validation runs a four-step sequence (build, test, lint, security scan) with short-circuit rules: build failure skips everything, test failure still runs lint so the fix agent gets both error sets in one pass, security only runs when the other three pass. Failures produce categorized FAIL records with per-step root cause summaries. Fix agents check prior FAIL records to avoid repeating failed approaches. Review runs after all four steps pass; if it makes fixes, re-validate up to MAX_REVIEW_CYCLES (2).
+
+4. **CI debug loop state machine**: The `[ci-loop]` task lifecycle, running in its own thread. Local validation runs before the very first push (the task agent may have left broken code, and each wasted CI cycle costs 10-30 min). After pushing, poll CI with HEAD-matching (the poller matches runs against the local git HEAD and waits up to 2 minutes for GitHub to create the run). Cancelled runs get their IDs added to a skip set so the poller finds the next non-cancelled run instead of creating empty commits. On failure, download logs, spawn diagnosis agent, then run a structured local fix-validate loop (up to 20 iterations of separate fix and validation agents) before pushing again. Up to 50 CI attempts total, with drain-awareness at every checkpoint (between iterations, during CI polling at 1s granularity, and between diagnosis and fix). State persisted to `state.json` so interrupted loops resume on the next run.
+
+<MermaidTabs tabs={[
+  {
+    label: "Runner (top-level)",
+    diagram: `stateDiagram-v2
+    [*] --> Initializing
+    Initializing --> CheckBlocked : parse args, detect sandbox, setup signals
+    CheckBlocked --> ConsumeBlocked : BLOCKED.md exists with task ID
+    CheckBlocked --> AutoGrant : BLOCKED.md has capability request
+    CheckBlocked --> MainLoop : no BLOCKED.md
+    ConsumeBlocked --> MainLoop : store answer, delete file
+    AutoGrant --> MainLoop : grant caps, delete file
+    MainLoop --> FlakeCheck : check flake.nix hash
+    FlakeCheck --> Draining : flake changed
+    FlakeCheck --> ReParse : flake unchanged
+    Draining --> DrainComplete : all agents finished
+    DrainComplete --> ReExec : nix develop succeeds
+    DrainComplete --> MainLoop : nix develop fails, update hash
+    ReExec --> [*] : os.execvp into new shell
+    ReParse --> CheckAllComplete : re-parse tasks.md, re-scan validation
+    CheckAllComplete --> Summary : all tasks + phases complete
+    CheckAllComplete --> CheckDraining : work remains
+    CheckDraining --> WaitDrain : Ctrl-C was pressed
+    WaitDrain --> Summary : all agents done
+    CheckDraining --> GetReadyTasks : not draining
+    GetReadyTasks --> CircuitBreaker : ready tasks found
+    CircuitBreaker --> CooldownWait : last N attempts all connection errors
+    CircuitBreaker --> SpawnAgents : circuit not tripped
+    CooldownWait --> MainLoop : wait 5 minutes
+    SpawnAgents --> SpawnVR : spawn task agents up to max_parallel
+    SpawnVR --> PollAgents : spawn validate+review for completed phases
+    PollAgents --> MainLoop : agent(s) finished
+    SpawnAgents --> NoopCheck : nothing spawned, nothing running
+    NoopCheck --> MainLoop : noop count < 5
+    NoopCheck --> Summary : noop count >= 5 (stuck)
+    Summary --> [*] : print results`
+  },
+  {
+    label: "Task lifecycle",
+    diagram: `stateDiagram-v2
+    [*] --> Pending : parsed from tasks.md
+    Pending --> Running : scheduler selects, agent spawned
+    Pending --> Complete : parsed as done from prior run
+    Pending --> Skipped : parsed as skip
+    Pending --> Blocked : parsed as blocked
+    Running --> Complete : agent exits 0, no DEFER file
+    Running --> Deferred : agent exits 0, DEFER file exists
+    Running --> RateLimited : stderr/log has rate limit signal
+    Running --> AuthError : log has 401/auth error
+    Running --> ConnectionError : ECONNRESET/ETIMEDOUT/DNS
+    Running --> Failed : agent exits non-zero (other)
+    RateLimited --> Pending : wait for resetsAt or 60s
+    ConnectionError --> Pending : attempt history recorded
+    Deferred --> Pending : retried when sole agent running
+    AuthError --> Failed : permanent, triggers runner shutdown
+    Failed --> Pending : re-parsed next loop`
+  },
+  {
+    label: "Phase validation",
+    diagram: `stateDiagram-v2
+    [*] --> TasksIncomplete : phase has pending tasks
+    TasksIncomplete --> TasksComplete : all tasks COMPLETE or SKIPPED
+    TasksComplete --> NeedsVR : needs validate+review cycle
+    NeedsVR --> VRRunning : agent spawned (cycle N)
+    VRRunning --> RunBuild
+    RunBuild --> BuildFailed : build fails
+    RunBuild --> RunTest : build passes
+    RunTest --> RunLint_afterFail : test fails (still run lint)
+    RunTest --> RunLint : test passes
+    RunLint_afterFail --> TestAndLintFailed : lint also fails
+    RunLint_afterFail --> TestFailed : lint passes
+    RunLint --> LintFailed : lint fails
+    RunLint --> RunSecurity : lint passes
+    RunSecurity --> SecurityFailed : findings
+    RunSecurity --> AllPassed : all 4 steps clean
+    AllPassed --> ReviewClean : review finds nothing
+    AllPassed --> ReviewFixes : review applied fixes
+    BuildFailed --> TasksIncomplete : fix task (categorized FAIL record)
+    TestFailed --> TasksIncomplete : fix task (categorized FAIL record)
+    TestAndLintFailed --> TasksIncomplete : fix task (both error sets)
+    LintFailed --> TasksIncomplete : fix task (categorized FAIL record)
+    SecurityFailed --> TasksIncomplete : fix task (categorized FAIL record)
+    ReviewClean --> PhaseComplete : REVIEW-CLEAN written
+    ReviewFixes --> NeedsVR : re-validate fixes (cycle N+1)
+    NeedsVR --> PhaseComplete : cycle > MAX_REVIEW_CYCLES (2)
+    PhaseComplete --> [*] : downstream phases unblocked`
+  },
+  {
+    label: "CI debug loop",
+    diagram: `stateDiagram-v2
+    [*] --> CheckDrain
+    CheckDrain --> Interrupted : drain or shutdown set
+    CheckDrain --> InitialValidation : first attempt
+    InitialValidation --> Push : local validation passed
+    InitialValidation --> Push : 20 iterations exhausted (push anyway)
+    Push --> PollCI : push succeeded
+    Push --> Push : push failed (retry)
+    PollCI --> Interrupted : drain/shutdown during poll
+    PollCI --> CIPassed : conclusion = success
+    PollCI --> CIFailed : conclusion = failure
+    PollCI --> CICancelled : conclusion = cancelled
+    CIPassed --> Finalize : spawn finalize agent
+    Finalize --> [*] : PR created, task complete
+    CICancelled --> PollCI : skip run ID, re-poll
+    CIFailed --> DownloadLogs : download failed job logs
+    DownloadLogs --> Diagnose : spawn diagnosis agent
+    Diagnose --> CheckDrainPostDiag : diagnosis file written
+    Diagnose --> DiagFailed : no diagnosis file
+    DiagFailed --> CheckDrain : skip fix, next attempt
+    CheckDrainPostDiag --> Interrupted : drain/shutdown
+    CheckDrainPostDiag --> LocalFixLoop : proceed to fix-validate
+    LocalFixLoop --> Push : local validation passed
+    LocalFixLoop --> Push : 20 iterations exhausted (push anyway)
+    Push --> Exhausted : attempt >= 50
+    Exhausted --> [*] : write BLOCKED.md
+    Interrupted --> [*] : save state, exit (resumable)`
+  }
+]} />
+
+The document is 522 lines with full data model definitions (Task, AgentSlot, PhaseValidationState), scheduling rules, retry logic tables, file object inventories, and the categorized FAIL record format with examples. It's not just documentation. It's the migration blueprint for Temporal.io. Each state machine maps to a Temporal concept: the runner becomes a top-level workflow, task execution becomes activities, phase validation becomes a child workflow, and the CI debug loop becomes a long-running child workflow with heartbeats. The document explicitly calls out 12 design decisions and their Temporal equivalents: file-based state becomes workflow state, the polling loop becomes activities with signals, the circuit breaker becomes a timer with side effects, token tracking becomes workflow metadata for observability dashboards, CI loop resumability is inherent in Temporal (the workflow picks up from where it left off after worker restart), and drain-awareness maps to cancellation scopes.
+
+Having this written down means I can hand the Mermaid diagrams to an agent and say "implement this as Temporal workflows" instead of asking it to reverse-engineer the behavior from 4,200+ lines of Python.
+
+## CI debug loop in action
+
+The most interesting part of today is watching T075 work. This is the CI/CD validation task: push to the `develop` branch, wait for GitHub Actions, diagnose and fix failures, repeat until CI is green, then create a PR to `main`.
+
+The runner spawns the CI debug loop in its own thread. Before the very first push, the runner validates locally: the task agent may have left broken code, and each wasted CI cycle costs 10-30 minutes. The local validation runs the same fix-validate loop described below, and only pushes once it passes (or exhausts 20 iterations).
+
+After pushing, the runner polls the GitHub Actions API every 30 seconds until the run completes, matching runs against the local git HEAD to avoid picking up stale runs. If CI passed, it spawns a finalize agent to create the PR. If the run was cancelled, the runner adds that run ID to a skip set and re-polls to find the next non-cancelled run (no empty commits, no re-push). If CI failed, it downloads the logs from the failed jobs and spawns a diagnosis agent to read them and write a structured root cause analysis.
+
+After diagnosis, the runner doesn't just spawn one fix agent and push. It runs a structured local fix-validate loop: spawn a fix agent to apply the recommended fix (no push), then spawn a separate validation agent to run the same commands CI runs locally, then check the result. If local validation fails, spawn another fix agent, validate again, up to 20 iterations. Only after local validation passes does the runner push. The validation agent reads `.github/workflows/ci.yml` to discover what CI actually runs, so it catches NixOS VM tests, race-detection flags, project-specific linters, everything.
+
+As of right now, T075 is on attempt 33 across 136 commits. The interesting thing isn't the individual bugs (though some are wild). It's the pattern: each CI failure peels back a layer to reveal the next one, and the diagnosis agent builds up context across attempts so it stops repeating itself.
+
+**Attempts 1-2: Workflow plumbing.** SSH auth failure (YubiKey not tapped), then a race condition where the E2E workflow used `lewagon/wait-on-check-action` which fails immediately if the check hasn't been created yet. Fix: `workflow_run` trigger so E2E only starts after CI finishes.
+
+**Attempts 3-6: Headscale boilerplate bugs.** Three test files copied the same headscale boilerplate, carrying three bugs each: `dns.nameservers.global` now required, `tls_cert_path` changed from string to nullable path (empty string `""` no longer works), and node functions shadowing overlay-augmented `pkgs` with base nixpkgs. The diagnosis agent caught the pattern by attempt 6 and wrote a learnings entry: "When creating ANY new NixOS VM test with headscale, always apply all three fixes from the start."
+
+**Attempts 7-10: Masked failures.** Fixing the headscale tests revealed `golangci-lint` errcheck failures that had been masked by the earlier build errors, then `jaeger-all-in-one` being completely removed from nixpkgs (the fix agent wrote a custom package fetching the Jaeger v2 binary from GitHub releases).
+
+**Attempts 11-20: Jaeger v2 on a 1-CPU VM.** Jaeger v2 is built on the OpenTelemetry Collector architecture. The fix agent spent 10 attempts iterating on pipeline config, discovering that the `jaeger_storage_exporter` is a "Development component" with an unconfigurable 5-second context deadline that always fires on a resource-constrained CI VM. The eventual workaround: add a `debug` exporter and verify traces via `journalctl` instead of the query API. This is the kind of problem where an agent will grind longer than a human would before pivoting, but it did eventually find the workaround on its own.
+
+**Attempts 22-25: Headscale DERP map.** Once Jaeger was sorted, headscale v0.28.0 crash-looped on all three multi-VM tests because it requires a non-empty DERP map at startup. The fix: provide a minimal static DERP map JSON file with a single dummy region.
+
+**Attempts 26-33: CI cancellation loop.** The CI workflow had `cancel-in-progress: true`, which killed 15-20 minute NixOS VM test runs every time the fix agent pushed a new commit. Several attempts were cancelled without producing any test results. Fix: `cancel-in-progress: false`. The remaining attempts are `interrupted` from runner restarts during the runner improvements I was making in parallel.
+
+The learnings file has ~20 entries, all from T075. Each one captures a gotcha that future agents (and future projects) will benefit from: the headscale triple-fix pattern, vendorHash independence between `package.nix` and `phonesim.nix`, the Jaeger removal from nixpkgs, CI cancellation dynamics. These are the kind of discoveries that are hard to find in documentation and easy to lose if they're not written down.
+
+## Spec-kit additions
+
+While watching the runner and fixing bugs, I noticed gaps in what spec-kit provides to implementing agents. Today's additions across two commits (3,326 lines total):
+
+**README generation guide.** A 217-line reference document with the "cognitive funneling" principle: start broad (what is this project?), narrow to specific (how do I configure option X?). Fourteen required sections with quality criteria, conditional sections based on project type, and preset-specific behaviors. This was missing entirely. Agents were generating READMEs with no structure or inconsistent structure.
+
+**Security scanning in the validation pipeline.** The security reference doc now defines a tiered scanner framework. Tier 1 (free, mandatory) includes Trivy, OSV-Scanner, Semgrep, CodeQL, Gitleaks, TruffleHog, and ecosystem-specific tools (npm audit, pip-audit, govulncheck, cargo audit). Tier 1.5 covers free-for-open-source tools like Snyk and SonarCloud. Phase validation runs the project-relevant scanners after build/test/lint pass, with JSON output to `test-logs/security/` and an aggregated `summary.json`. Findings trigger the same fix-validate loop as test failures, with categorized FAIL records that include per-step root cause summaries. The reference doc also documents SARIF output for CI integration (6 of 7 scanners support it) and a structured action table for fix agents: dependency vulnerability gets a version bump, SAST finding gets a code fix, leaked secret gets removed and added to `.gitignore`, false positive gets an inline suppression with a justification comment.
+
+**CI/CD reference documentation.** A reference doc covering the standard pipeline stages (lint, build, test, integration, security, contract, E2E, deploy), build/release/run separation, quality gates, SARIF uploads, SBOM generation, and CI credential setup requirements. The big addition is the agentic CI feedback loop: how the runner manages `[needs: gh, ci-loop]` tasks with the push/poll/diagnose/local-fix-validate/push cycle, including the CI parity rule (validation agents read `.github/workflows/ci.yml` to discover commands instead of using a hardcoded list) and the artifact directory structure (`ci-debug/<task_id>/` with state.json, attempt logs, diagnosis, fix notes, and local validation results). There's also a security note: tasks with `[needs: gh]` that contain package install commands get their `GH_TOKEN` stripped to prevent supply-chain attacks exfiltrating credentials.
+
+**Learnings management.** The SKILL.md now documents how learnings work: agents write discoveries to `learnings.md`, the runner passes phase-filtered learnings to each agent (so a Phase 5 agent doesn't get bogged down with Phase 1 gotchas), and stale learnings get auto-pruned after phases complete. Each entry is capped at 3 bullet points focused on non-obvious gotchas. The runner also trims the task file context: agents get their own phase block in full plus a compact summary of completed tasks in other phases (just IDs), keeping context lean. This was all happening implicitly in the runner code but wasn't documented anywhere agents could reference.
+
+**NixOS VM testing patterns.** The testing reference got a new pattern for systemd service testing in NixOS VMs. The pattern requires four checks for every service: wait for active, verify it's still running after startup settles (catches crash-on-startup bugs), check for fatal log messages via journalctl, and verify functional readiness (hit the health endpoint, make a test RPC, not just check the process is alive). This came directly from watching agents write tests that passed `wait_for_unit` but missed services that crashed 1 second after startup because of missing config.
+
+**Model-mix benchmark prompt.** I wrote a benchmark plan to address the cost problem (see next section). The prompt defines 6 model configurations to test against nix-key, from all-Opus down to all-Sonnet, using the token data from this run as the baseline. This hasn't been executed yet, it's next on the list once nix-key finishes.
+
+## The cost problem
+
+I added token tracking to the runner partway through the nix-key run. Even with only the second half of the project instrumented, the API cost equivalent was hundreds of dollars. The real number for the full run is likely closer to $400. The runner spawned 100+ agent sessions across 77 tasks, each one reading the spec, the learnings file, existing code, reference docs, and then writing code and running builds. The CI debug loop alone burned through 33 attempts with diagnosis agents, fix agents, and local validation agents on each iteration, each reading full CI logs and writing patches. Token counts add up fast when you're running 3 agents in parallel for 12+ hours.
+
+I'm on the Claude Max 20x subscription, so the dollar cost isn't hitting me directly. But at this rate I'm likely to hit the usage cap this week. That's the real constraint: even with the highest subscription tier, there's a ceiling on how much compute you can burn, and running a 14-phase project with parallel agents eats through it fast. If I want to keep iterating on spec-kit, run benchmarks, and start new projects, I need to get costs down or I'm sitting idle waiting for the cap to reset.
+
+$400 for a project like nix-key makes total sense for some use cases. If you're a company shipping a product, that's nothing compared to developer time. But I don't have unlimited resources, and the cheaper I can make each run, the more projects I can build and the more iterations I can do on the tooling. Cost efficiency directly translates to velocity.
+
+This is why the model-mix benchmark is next. I wrote a benchmark prompt today that defines 6 configurations ranging from all-Opus ($195.50 estimated) down to all-Sonnet with task splitting ($21.82), based on actual token data from the nix-key run: 29 completed tasks, 870 API messages, 86.6M tokens. The question: can Sonnet handle implementation tasks while Opus handles planning, review, and diagnosis? If the $56 hybrid config produces comparable quality, that's a 3.5x cost reduction. If full Sonnet works, it's nearly 10x. I'll run this once nix-key finishes and I can evaluate the baseline quality.
+
+## What's next
+
+The runner is still going. T075 is working through NixOS VM test failures on attempt 33, and T076 (final documentation) is waiting behind it. Other than the runner fixes and spec-kit additions, I haven't intervened in the implementation. The agents wrote all 136 commits in nix-key.
+
+Once T075 and T076 complete, I'll evaluate the output more carefully. How much of the spec actually got implemented correctly? Where did agents struggle? What patterns in the learnings file suggest skill improvements?
+
+After that evaluation, I'm going to use spec-kit to build a new feature from everything I learned from this run. The runner improvements, the security scanning, the CI debug loop, the learnings management: all of that was added manually to the skill files today. The next step is speccing and implementing those changes properly so they're integrated cleanly instead of bolted on.
+
+And Temporal is next. The state machine document is the migration plan. Four nested state machines, 12 design decisions with their Temporal equivalents, and a working reference implementation in Python that (bugs aside) proves the orchestration model works. The script's ceiling is clear, but the architecture it settled on is sound. Temporal gives it durability, but the real win is visibility: workflow state, activity history, and event logs all queryable in real time. That means I can have agents watching the agents, catching issues during the run instead of me waking up to a dead process and piecing together what happened from log files.
