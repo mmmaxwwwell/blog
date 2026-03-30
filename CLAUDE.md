@@ -55,6 +55,12 @@ Use one of these (add new ones if a project genuinely doesn't fit):
 - **The meta angle matters.** If building projects is a feedback loop for refining the tool, that's worth covering. If interview transcripts can be used as benchmarks, that's interesting. If you're dogfooding, say so.
 - **Explain the "why" behind workarounds.** "Agents skip validation" is less interesting than "when you have parallel agents, no single agent can know it's the last one in a phase, so validation falls through the cracks." The structural reason is the insight.
 
+### Keep it interesting
+- **Summarize repetitive sequences.** If 10 CI attempts hit similar classes of bugs, don't write a paragraph per attempt. Group them by category, lead with the pattern or insight, give one or two concrete examples, and move on. The reader cares about what was learned, not the blow-by-blow.
+- **Earn every paragraph.** Before writing a section, ask: would a reader skim this? If yes, condense it or cut it. Detailed per-attempt logs, config-field-level debugging, and tool-specific option names are not interesting unless they illustrate a broader point.
+- **Lead with the insight, not the chronology.** "The diagnosis agent learned to stop repeating itself after 6 attempts" is more interesting than a timeline of what happened on each attempt. Use chronology only when the ordering itself is the point (e.g., cascading failures where fixing A reveals B).
+- **Cut niche tool details unless they're the point of the post.** If Jaeger v2's `jaeger_storage_exporter` has an unconfigurable timeout, that's one sentence of context, not three paragraphs. The interesting part is that an agent spent 10 attempts before pivoting to a workaround.
+
 ### Structure
 - **Subject statement**: Every post starts with a 1-2 sentence subject statement above the TLDR. This is the thesis of the post: what happened and what the outcome was. No heading, just plain text at the top of the content.
 - **TLDR section**: Every post has a `## TLDR` section immediately after the subject statement. One bullet per major section, each with a linked section name and a single-sentence summary. Readers should be able to get the gist of the entire post or click through to any section. Add a `---` horizontal rule after the TLDR before the main content begins.
